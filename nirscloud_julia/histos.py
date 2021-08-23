@@ -43,8 +43,9 @@ def mpl_histo(ax, time, data, fiducial_vs, smooth=True, hist_size="15%",):
         ax.axhline(v, color=lc, ls=ls, zorder=0.5, label=v.fiducial.item())
         ax_y_pdf.axhline(v, color=lc, ls=ls, zorder=0.5, label=v.fiducial.item())
 
-def mpl_histos(fig, fastrak_ds: xr.Dataset, measurements_ds=None, *, smooth=True, hist_size="15%", time_slice=slice(None), nirs_cmap="Set2", nirs_alpha=0.4, location="head"):
+def mpl_histos(fig, fastrak_ds: xr.Dataset, measurements_ds=None, *, smooth=True, hist_size="15%", time_slice=slice(None), nirs_cmap: 'dict[str, "Color"] | str | mpl.colors.Colormap'="Set2", nirs_alpha=0.4, location="head"):
     if hasattr(fig, "add_gridspec"):
+        mpl.cm.C
         # Is entire figure
         gs = fig.add_gridspec(4, 1)
     elif hasattr(fig, "subgridspec"):
@@ -81,8 +82,11 @@ def mpl_histos(fig, fastrak_ds: xr.Dataset, measurements_ds=None, *, smooth=True
 
     if measurements_ds is not None:
         measurement_locations = np.unique(measurements_ds.coords["measurement_location"])
-        cmap = mpl.cm.get_cmap(nirs_cmap, len(measurement_locations))
-        colors = {l: cmap(i) for i, l in enumerate(measurement_locations)}
+        if isinstance(nirs_cmap, dict):
+            colors = nirs_cmap
+        else:
+            cmap = mpl.cm.get_cmap(nirs_cmap, len(measurement_locations))
+            colors = {l: cmap(i) for i, l in enumerate(measurement_locations)}
         start = (measurements_ds.nirs_start_time - fastrak_ds.time[0]) / np.timedelta64(1, 's')
         end = (measurements_ds.nirs_end_time - fastrak_ds.time[0]) / np.timedelta64(1, 's')
         for ax in axs:

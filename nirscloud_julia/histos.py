@@ -1,3 +1,5 @@
+import typing
+
 import numpy as np
 import xarray as xr
 
@@ -10,6 +12,7 @@ def xr_vector_norm(x, dim, ord=None):
     return xr.apply_ufunc(
         np.linalg.norm, x, input_core_dims=[[dim]], kwargs={"ord": ord, "axis": -1}
     )
+
 
 def plot_with_hist(ax, x, y, smooth=True, hist_size="15%"):
     ax.plot(x, y, 'k')
@@ -43,9 +46,9 @@ def mpl_histo(ax, time, data, fiducial_vs, smooth=True, hist_size="15%",):
         ax.axhline(v, color=lc, ls=ls, zorder=0.5, label=v.fiducial.item())
         ax_y_pdf.axhline(v, color=lc, ls=ls, zorder=0.5, label=v.fiducial.item())
 
-def mpl_histos(fig, fastrak_ds: xr.Dataset, measurements_ds=None, *, smooth=True, hist_size="15%", time_slice=slice(None), nirs_cmap: 'dict[str, "Color"] | str | mpl.colors.Colormap'="Set2", nirs_alpha=0.4, location="head"):
+
+def mpl_histos(fig, fastrak_ds: xr.Dataset, measurements_ds=None, *, smooth=True, hist_size="15%", time_slice=slice(None), nirs_cmap: 'dict[str, typing.Any] | str | mpl.colors.Colormap'="Set2", nirs_alpha=0.4, location="head"):
     if hasattr(fig, "add_gridspec"):
-        mpl.cm.C
         # Is entire figure
         gs = fig.add_gridspec(4, 1)
     elif hasattr(fig, "subgridspec"):
@@ -53,7 +56,6 @@ def mpl_histos(fig, fastrak_ds: xr.Dataset, measurements_ds=None, *, smooth=True
     else:
         raise TypeError(f"fig must be either a `Figure` or a `SubplotSpec`, not a {type(fig)}")
     axs = gs.subplots(sharex="col")
-    # axs = fig.subplots(4, 1, sharex="col")
 
     time = fastrak_ds.time
     position = fastrak_ds.position.sel(location=location)
@@ -63,7 +65,7 @@ def mpl_histos(fig, fastrak_ds: xr.Dataset, measurements_ds=None, *, smooth=True
 
     time = (time - time[0]) / np.timedelta64(1, 's')
 
-
+    axs[0].set_title(f"{location}-sensor positioning")
     # Position
     for ax, c in zip(axs[:-1], fastrak_ds.coords["cartesian_axes"]):
         v = position.sel(cartesian_axes=c)
@@ -74,12 +76,10 @@ def mpl_histos(fig, fastrak_ds: xr.Dataset, measurements_ds=None, *, smooth=True
     ax = axs[-1]
     v = xr_vector_norm(position, dim="cartesian_axes")
     mpl_histo(ax, time, v, xr_vector_norm(fastrak_ds.fiducial_position.sel(fastrak_idx=1), dim="cartesian_axes"), smooth=smooth, hist_size=hist_size)
+    ax.set_xlabel("measurement timestamp")
     ax.set_ylabel(f"distance (cm)")
 
-    s = fastrak_ds.subject.item()
-    d = fastrak_ds.date.dt.date.values # np.datetime_as_string(fastrak_ds.date.values, unit="D")
-    axs[0].set_title(f"{location}-sensor positioning for {s} on {d}")
-
+    # NIRS measurment highlights
     if measurements_ds is not None:
         measurement_locations = np.unique(measurements_ds.coords["measurement_location"])
         if isinstance(nirs_cmap, dict):
@@ -108,7 +108,6 @@ def mpl_histos_legend(fig):
     return lgd
 
 
-
 def main():
     from io import StringIO
     # from IPython.display import SVG
@@ -120,7 +119,8 @@ def main():
     _, _ = mpl_histos(gs[0, 1], fv.fastrak_ds, fv.measurements, time_slice=slice(None, t_max), location="nirs")
     lgd = mpl_histos_legend(fig)
     with StringIO() as f:
-        fig.savefig(f, format="svg", bbox_extra_artists=(lgd,), bbox_inches='tight')
+        # fig.savefig(f, format="svg", bbox_extra_artists=(lgd,), bbox_inches='tight')
+        fig.savefig(f, format="svg", bbox_inches='tight')
         # fig.savefig(f, format="svg")
         svg_str = f.getvalue()
     # return SVG(svg_str)

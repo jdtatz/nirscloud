@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "nirscloud-julia"
-version = "0.0.8"
+version = "0.0.9"
 description = "Julia's nirscloud utils"
 authors = ["Julia Tatz <tatz.j@northeastern.edu>"]
 

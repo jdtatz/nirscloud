@@ -301,8 +301,8 @@ class FastrakVisualization:
         t_max = self.measurements.nirs_end_time.max().values + np.timedelta64(30, "s")
         gs = fig.add_gridspec(1, 2)
         histo_kwargs = dict(time_slice=slice(None, t_max), smooth=smooth, hist_size=hist_size, nirs_cmap=nirs_cmap, nirs_alpha=nirs_alpha,)
-        _ = plot_histogramed_positioning(gs[0, 0], self.fastrak_ds.position.sel(location="head"), self.measurements, **histo_kwargs)
-        _ = plot_histogramed_positioning(gs[0, 1], self.fastrak_ds.position.sel(location="nirs"), self.measurements, **histo_kwargs)
+        _ = plot_histogramed_positioning(gs[0, 0], self.fastrak_ds.sel(location="head"), self.measurements, **histo_kwargs)
+        _ = plot_histogramed_positioning(gs[0, 1], self.fastrak_ds.sel(location="nirs"), self.measurements, **histo_kwargs)
         lgd = histogramed_positioning_legend(fig)
         fig.suptitle(f"{self.fastrak_ds.subject.item()} on {np.datetime_as_string(self.fastrak_ds.time[0], unit='s')}")
         return lgd

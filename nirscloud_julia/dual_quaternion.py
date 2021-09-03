@@ -3,7 +3,7 @@ from numpy.typing import ArrayLike
 import quaternion
 from scipy.spatial.transform import Rotation, RotationSpline
 import scipy.interpolate as interpolate
-from typing import NewType, Optional, Tuple, Union, Any
+from typing import Tuple, Union, Any
 from dataclasses import dataclass
 from enum import Enum, auto
 

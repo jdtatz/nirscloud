@@ -1,10 +1,13 @@
 import os
 import requests
+import numpy as np
 import gssapi
 from requests_gssapi import HTTPSPNEGOAuth
 from hdfs import Client
 from requests import Session
 from fastparquet import ParquetFile
+import pandas as pd
+import xarray as xr
 
 
 kafka_topics_FT = 'fastrak2_s'
@@ -40,6 +43,7 @@ def create_webhfs_client(spark_kerberos_principal=None, *, proxies={}, headers={
 
 
 def read_data_from_meta(client, meta, hdfs_prefix):
+    from pathlib import Path
     full_path = Path(hdfs_prefix) / meta["hdfs_path"]
     with client.read(full_path) as reader:
         # contents = reader.read()

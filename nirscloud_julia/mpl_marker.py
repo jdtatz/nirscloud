@@ -1,5 +1,5 @@
 import matplotlib as mpl
-import matplotlib.markers
+import matplotlib.markers as markers
 
 def centered_text_as_path(s: str) -> mpl.path.Path:
     # fp = mpl.font_manager.FontProperties(size=1, family='monospace')
@@ -12,12 +12,12 @@ def centered_text_as_path(s: str) -> mpl.path.Path:
     return mpl.path.Path(verts, codes, closed=False).transformed(trans)
 
 
-def marker_with_text(base_marker, text: str) -> mpl.markers.MarkerStyle:
-    if not isinstance(base_marker, mpl.markers.MarkerStyle):
-        assert hasattr(base_marker, '__hash__') and base_marker in mpl.markers.MarkerStyle.markers
-        base_marker = mpl.markers.MarkerStyle(base_marker)
+def marker_with_text(base_marker, text: str) -> markers.MarkerStyle:
+    if not isinstance(base_marker, markers.MarkerStyle):
+        assert hasattr(base_marker, '__hash__') and base_marker in markers.MarkerStyle.markers
+        base_marker = markers.MarkerStyle(base_marker)
     # ignoring alternate path for now
     base_path = base_marker.get_path().transformed(base_marker.get_transform())
     text_path = centered_text_as_path(text).transformed(mpl.transforms.Affine2D.identity().scale(3/4))
     marker_path = mpl.path.Path.make_compound_path(base_path, text_path)
-    return mpl.markers.MarkerStyle(marker_path)
+    return markers.MarkerStyle(marker_path)

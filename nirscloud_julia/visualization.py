@@ -1,21 +1,39 @@
 import typing
+from itertools import product
+
+import ipywidgets as widgets
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import art3d, axes3d
 import numpy as np
 import quaternion
 import xarray as xr
-import matplotlib as mpl
-import matplotlib.pyplot as plt
+from matplotlib.gridspec import GridSpecFromSubplotSpec, SubplotSpec
 from scipy import interpolate
-from scipy.spatial.transform import Rotation, RotationSpline
-import ipywidgets as widgets
+from scipy.spatial.transform import Rotation
+
 from dual_quaternion import DualQuaternion
-from nirscloud_julia import combine_measurements_ds
+from nirscloud_julia.mpl_marker import marker_with_text
+
+
+def combine_measurements_ds(fastrak_ds: xr.Dataset, nirs_ds: xr.Dataset) -> xr.Dataset:
+    fastrak_measurements = []
+    for dt in xr.concat((nirs_ds.nirs_start_time, nirs_ds.nirs_start_time + nirs_ds.duration), dim="t").transpose("measurement", "t"):
+        m = str(dt.measurement.values)
+        start, end = dt.values
+        t_slice = slice(start, end + 1)
+        fastrak_time_sliced = fastrak_ds.sel(time=t_slice).drop_vars("measurement").rename_dims(time="fastrak_time") #.rename(time="fastrak_time")
+        fastrak_time_sliced.coords["fastrak_time"] = fastrak_time_sliced["time"] - start
+        fastrak_time_sliced.coords["measurement"] = m
+        fastrak_measurements.append(fastrak_time_sliced.drop_vars("time"))
+    measurements = xr.merge((xr.concat(fastrak_measurements, dim="measurement").drop_vars(["meta_id", "session"]), nirs_ds.drop_vars(["meta_id", "session"])))
+    measurements.coords["measurement_location"], measurements.coords["measurement_trial"] = measurements.measurement.str.split("split_axis", "_", 1).transpose("split_axis", ...)
+    return measurements
 
 
 def auto_fig_size(height, width):
     return plt.figaspect(height / width)
 
-from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec, SubplotSpec
-from itertools import product
 
 def plot_measurment_trials(sb: SubplotSpec, measurement_ds: xr.Dataset, axes=('x', 'y', 'z'), ft_locs=("head", "nirs"), wavelength_indices=(0,), rho_idxs=(0, -1)):
     ntrial = len(measurement_ds.measurement)
@@ -52,10 +70,9 @@ def plot_measurment_trials(sb: SubplotSpec, measurement_ds: xr.Dataset, axes=('x
 
 
 def interactive_bokeh_measurement_time_plot(measurement_ds, ft_locs=("head", "nirs"), wavelength_indices=(-1,), rho_indices=(0, -1)):
-    import bokeh
-    from bokeh.plotting import figure, output_file, save, show
+    from bokeh.layouts import gridplot
     from bokeh.models import Panel, Tabs
-    from bokeh.layouts import column, grid, row, gridplot
+    from bokeh.plotting import figure
 
     fastrak_time_s = np.asarray(measurement_ds.fastrak_time / np.timedelta64(1, 's'))
     nirs_time_s = np.asarray(measurement_ds.time / np.timedelta64(1, 's'))
@@ -115,9 +132,6 @@ def interactive_bokeh_measurement_time_plot(measurement_ds, ft_locs=("head", "ni
 
     tabs = [Panel(child=v, title=k) for k, v in grids]
     return Tabs(tabs=tabs)
-
-
-from mpl_toolkits.mplot3d import axes3d, art3d
 
 
 def minimal_rotation(a: np.ndarray, b: np.ndarray) -> Rotation:
@@ -281,18 +295,19 @@ class FastrakVisualization:
         clb.set_ticklabels(list(fastrak_mean_measurements_grouped.keys()))
         return ax, clb
 
-    def positioning_with_histogram_plot(self, fig, smooth=True, hist_size="15%", nirs_cmap: 'dict[str, typing.Any] | str | mpl.colors.Colormap'="Set2", nirs_alpha=0.4, location="head"):
-        from .histos import mpl_histos, mpl_histos_legend
+    def positioning_with_histogram_plot(self, fig, *, smooth=True, hist_size="15%", nirs_cmap: 'dict[str, typing.Any] | str | mpl.colors.Colormap'="Set2", nirs_alpha=0.4, location="head"):
+        from .histos import (histogramed_positioning_legend,
+                             plot_histogramed_positioning)
         t_max = self.measurements.nirs_end_time.max().values + np.timedelta64(30, "s")
         gs = fig.add_gridspec(1, 2)
         histo_kwargs = dict(time_slice=slice(None, t_max), smooth=smooth, hist_size=hist_size, nirs_cmap=nirs_cmap, nirs_alpha=nirs_alpha,)
-        _, _ = mpl_histos(gs[0, 0], self.fastrak_ds, self.measurements, **histo_kwargs)
-        _, _ = mpl_histos(gs[0, 1], self.fastrak_ds, self.measurements, location="nirs", **histo_kwargs)
-        lgd = mpl_histos_legend(fig)
+        _ = plot_histogramed_positioning(gs[0, 0], self.fastrak_ds.position.sel(location="head"), self.measurements, **histo_kwargs)
+        _ = plot_histogramed_positioning(gs[0, 1], self.fastrak_ds.position.sel(location="nirs"), self.measurements, **histo_kwargs)
+        lgd = histogramed_positioning_legend(fig)
         fig.suptitle(f"{self.fastrak_ds.subject.item()} on {np.datetime_as_string(self.fastrak_ds.time[0], unit='s')}")
         return lgd
 
-    def interactive_measurement_time_plot(self, ft_locs=("head", "nirs", "relative"), wavelength_indices=(0,), rho_idxs=(0, -1)):
+    def interactive_measurement_time_plot(self, ft_locs=("head", "nirs", "relative"), wavelength_indices=(0,), rho_idxs=(0, -1), figsize=(16, 8)):
         msrmnt_loc_dict = dict(self.measurements.groupby("measurement_location"))
 
         def interactive_update_wrapper(key):
@@ -308,7 +323,7 @@ class FastrakVisualization:
         # out = widgets.interactive_output(interactive_update_wrapper, {'measurement_ds': choice})
 
         plt.ioff()
-        fig = plt.figure(constrained_layout=True, figsize=(16, 8),)
+        fig = plt.figure(constrained_layout=True, figsize=figsize,)
         plt.ion()
         fig.canvas.header_visible = False
         # fig.canvas.layout.min_height = '400px'
@@ -318,14 +333,14 @@ class FastrakVisualization:
         gui = widgets.VBox([choice, fig.canvas])
         return gui
 
-    def interactive_3d_time_plot(self, measurement: str):
+    def interactive_3d_time_plot(self, measurement: str, *, figsize=auto_fig_size(1, 2)):
         example = self.nirs_ds.nirs_start_time.sel(measurement=measurement)
         t_slice = slice(example, example + example.duration)
         test = self.fastrak_ds.sel(time=t_slice, location='relative')
         test_rots = Rotation.from_quat(quaternion.as_float_array(test.orientation)[..., [1, 2, 3, 0]])
 
         plt.ioff()
-        fig = plt.figure(figsize=auto_fig_size(1, 2))
+        fig = plt.figure(figsize=figsize)
         plt.ion()
 
         fig.suptitle(str(example.measurement.values))
@@ -348,81 +363,18 @@ class FastrakVisualization:
         gui = widgets.VBox([sel, fig.canvas])
         return gui
 
-text_color = "#000000"
 
-bokeh_theme = {
-    "attrs": {
-        "Figure": {
-            "outline_line_color": text_color,
-        },
-        "Axis": {
-            "major_tick_in": 0,
-            "major_tick_out": 3,
-            "major_tick_line_alpha": 0.25,
-            "major_tick_line_color": text_color,
+def get_bokeh_theme(doc = None):
+    from importlib.resources import path
 
-            "minor_tick_line_alpha": 0.25,
-            "minor_tick_line_color": text_color,
-
-            "axis_line_alpha": 1,
-            "axis_line_color": text_color,
-
-            "major_label_text_color": text_color,
-            "major_label_text_font": "Calibri Light",
-#             "major_label_text_font_size": "2em",
-            "major_label_text_font_style": "bold",
-
-            "axis_label_standoff": 10,
-            "axis_label_text_color": text_color,
-            "axis_label_text_font": "Calibri Light",
-#             "axis_label_text_font_size": "3em",
-            "axis_label_text_font_style": "bold"
-        },
-
-        "Legend": {
-            "spacing": 8,
-            "glyph_width": 15,
-
-            "label_standoff": 8,
-            "label_text_color": text_color,
-            "label_text_font": "Calibri Light",
-#             "label_text_font_size": "2em",
-            "label_text_font_style": "bold",
-
-            "border_line_alpha": 0,
-            "background_fill_alpha": 0.25
-        },
-
-        "ColorBar": {
-            "title_text_color": text_color,
-            "title_text_font": "Calibri Light",
-#             "title_text_font_size": "3em",
-            "title_text_font_style": "bold",
-
-            "major_label_text_color": text_color,
-            "major_label_text_font": "Calibri Light",
-#             "major_label_text_font_size": "2em",
-            "major_label_text_font_style": "bold",
-
-            "major_tick_line_alpha": 0,
-            "bar_line_alpha": 0
-        },
-
-        "Title": {
-            "text_color": text_color,
-            "text_font": "Calibri Light",
-#             "text_font_size": "4em",
-            "text_font_style": "bold",
-        }
-    }
-}
+    from bokeh.themes import Theme
+    
+    with path(__package__, "nirs_bokeh_theme.yml") as fpath:
+        return Theme(filename=fpath)
 
 
 def apply_bokeh_theme(doc = None):
-    from bokeh.themes import Theme
-    
     if doc is None:
         import bokeh.io
         doc = bokeh.io.curdoc()
-    doc.theme = Theme(json=bokeh_theme)
-
+    doc.theme = get_bokeh_theme()

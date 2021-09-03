@@ -12,7 +12,16 @@ def create_client(
     ssl_ca_certs='/etc/mongo/root-ca.pem',
     **extra_kwargs
 ) -> pymongo.MongoClient:
-    return pymongo.MongoClient(**{**pymongo_client_kwargs, **extra_kwargs})
+    return pymongo.MongoClient(
+        host=host,
+        port=port,
+        ssl=ssl,
+        authSource=authSource,
+        authMechanism=authMechanism,
+        ssl_certfile=ssl_certfile,
+        ssl_ca_certs=ssl_ca_certs,
+        **extra_kwargs
+    )
 
 core_schema_fields = "_id", "meta_id"
 commmon_schema_fields = "group_id", "measurement_id", "note_id", "postfix_id", "session_id", "study_id", "subject_id", "the_date", "hdfs_path", "file_prefix"

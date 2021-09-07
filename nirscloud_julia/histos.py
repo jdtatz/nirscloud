@@ -5,8 +5,8 @@ import xarray as xr
 
 import matplotlib as mpl
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-import matplotlib.pyplot as plt
-
+from matplotlib.figure import Figure
+from matplotlib.gridspec import SubplotSpec
 
 def xr_vector_norm(x, dim, ord=None):
     return xr.apply_ufunc(
@@ -48,15 +48,16 @@ def mpl_histo(ax, time, data, fiducial_vs, smooth=True, hist_size="15%",):
     return ax_y_pdf
 
 
-def plot_histogramed_positioning(fig, fastrak_ds: xr.Dataset, measurements_ds=None, *, smooth=True, hist_size="15%", time_slice=slice(None), nirs_cmap: 'dict[str, typing.Any] | str | mpl.colors.Colormap'="Set2", nirs_alpha=0.4):
-    if hasattr(fig, "add_gridspec"):
+def plot_histogramed_positioning(fig_or_spec: 'Figure | SubplotSpec', fastrak_ds: xr.Dataset, measurements_ds=None, *, smooth=True, hist_size="15%", time_slice=slice(None), nirs_cmap: 'dict[str, typing.Any] | str | mpl.colors.Colormap'="Set2", nirs_alpha=0.4):
+    if isinstance(fig_or_spec, Figure):
         # Is entire figure
-        gs = fig.add_gridspec(4, 1)
-    elif hasattr(fig, "subgridspec"):
-        gs = fig.subgridspec(4, 1)
+        gs = fig_or_spec.add_gridspec(4, 1)
+    elif isinstance(fig_or_spec, SubplotSpec):
+        gs = fig_or_spec.subgridspec(4, 1)
     else:
-        raise TypeError(f"fig must be either a `Figure` or a `SubplotSpec`, not a {type(fig)}")
+        raise TypeError(f"fig must be either a `Figure` or a `SubplotSpec`, not a {type(fig_or_spec)}")
     axs = gs.subplots(sharex="col")
+    fig = gs.figure
     y_pdf_axs = []
 
     time = fastrak_ds.time
@@ -85,6 +86,9 @@ def plot_histogramed_positioning(fig, fastrak_ds: xr.Dataset, measurements_ds=No
     ax.set_xlabel("measurement timestamp")
     ax.set_ylabel(f"distance (cm)")
 
+    # Fix-up subplots
+    fig.align_ylabels(axs)
+
     # NIRS measurment highlights
     if measurements_ds is not None:
         measurement_locations = np.unique(measurements_ds.coords["measurement_location"])
@@ -103,7 +107,7 @@ def plot_histogramed_positioning(fig, fastrak_ds: xr.Dataset, measurements_ds=No
     return gs, axs, y_pdf_axs
 
 
-def histogramed_positioning_legend(fig):
+def histogramed_positioning_legend(fig: Figure):
     # axs[0].legend()
     # h, l = axs[0].get_legend_handles_labels()
     h, l = fig.axes[0].get_legend_handles_labels()

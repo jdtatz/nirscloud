@@ -23,7 +23,7 @@ def plot_with_y_histogram(ax, x, y, smooth=True, hist_size="15%"):
         from scipy import stats
         y_lin = np.linspace(*ax.get_ylim(), 512)
         y_pdf = stats.gaussian_kde(y[np.isfinite(y)])
-        ax_y_pdf.fill_betweenx(y_lin, 0, y_pdf(y_lin), facecolor="none", edgecolor=ax.spines["right"].get_edgecolor(), hatch="x", clip_on=False,)
+        ax_y_pdf.fill_betweenx(y_lin, 0, y_pdf(y_lin), facecolor="none", edgecolor=ax.spines["right"].get_edgecolor(), hatch="x",)
     else:
         ax_y_pdf.hist(y, fc='none', ec='k', density=True, orientation='horizontal', bins=16)
     ax_y_pdf.set_xlim(0, None)

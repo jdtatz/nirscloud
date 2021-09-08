@@ -278,7 +278,7 @@ class FastrakVisualization:
                 trial = trials.isel(measurement=j)
                 marker = marker_with_text("o", trial.coords["measurement_trial"].item())
                 ax.scatter(*trial.position.sel(location='relative').T, color=c, depthshade=False, s=s, edgecolor='k', marker=marker)
-        
+
         for l in ("nose", "left_ear", "right_ear"):
             marker = marker_with_text("o", l[0].upper())
             h_p = self.measurments.coords["fiducial_position"].sel(fiducial=l, fastrak_idx=1)
@@ -295,7 +295,7 @@ class FastrakVisualization:
         clb.set_ticklabels(list(fastrak_mean_measurements_grouped.keys()))
         return ax, clb
 
-    def positioning_with_histogram_plot(self, fig, *, smooth=True, hist_size="15%", nirs_cmap: 'dict[str, typing.Any] | str | mpl.colors.Colormap'="Set2", nirs_alpha=0.4, location="head"):
+    def positioning_with_histogram_plot(self, fig, *, smooth=True, hist_size="15%", nirs_cmap: 'dict[str, typing.Any] | str | mpl.colors.Colormap'="Set2", nirs_alpha=0.4):
         from .histos import (histogramed_positioning_legend,
                              plot_histogramed_positioning)
         t_max = self.measurements.nirs_end_time.max().values + np.timedelta64(30, "s")
@@ -304,7 +304,7 @@ class FastrakVisualization:
         _ = plot_histogramed_positioning(gs[0, 0], self.fastrak_ds.sel(location="head"), self.measurements, **histo_kwargs)
         _ = plot_histogramed_positioning(gs[0, 1], self.fastrak_ds.sel(location="nirs"), self.measurements, **histo_kwargs)
         lgd = histogramed_positioning_legend(fig)
-        fig.suptitle(f"{self.fastrak_ds.subject.item()} on {np.datetime_as_string(self.fastrak_ds.time[0], unit='s')}")
+        fig.suptitle(f"Subject {self.fastrak_ds.subject.item()} on {np.datetime_as_string(self.fastrak_ds.time[0], unit='s')}")
         return lgd
 
     def interactive_measurement_time_plot(self, ft_locs=("head", "nirs", "relative"), wavelength_indices=(0,), rho_idxs=(0, -1), figsize=(16, 8)):
@@ -364,7 +364,7 @@ class FastrakVisualization:
         return gui
 
 
-def get_bokeh_theme(doc = None):
+def get_bokeh_theme():
     from importlib.resources import path
 
     from bokeh.themes import Theme

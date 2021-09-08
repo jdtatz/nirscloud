@@ -305,7 +305,7 @@ class FastrakVisualization:
         _ = plot_histogramed_positioning(gs[0, 0], self.fastrak_ds.sel(location="head"), self.measurements, **histo_kwargs)
         _ = plot_histogramed_positioning(gs[0, 1], self.fastrak_ds.sel(location="nirs"), self.measurements, **histo_kwargs, use_nirs_time_subset_for_lim=use_nirs_time_subset_for_lim)
         lgd = histogramed_positioning_legend(fig)
-        fig.suptitle(f"Subject {self.fastrak_ds.subject.item()} on {np.datetime_as_string(self.fastrak_ds.time[0], unit='D', timezone=tz)}")
+        fig.suptitle(f"Subject {self.fastrak_ds.subject.item()} on {np.datetime_as_string(self.fastrak_ds.time[0], unit='D', timezone=tz, casting='unsafe')}")
         return lgd
 
     def interactive_measurement_time_plot(self, ft_locs=("head", "nirs", "relative"), wavelength_indices=(0,), rho_idxs=(0, -1), figsize=(16, 8)):

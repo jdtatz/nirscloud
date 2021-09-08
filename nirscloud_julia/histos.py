@@ -1,3 +1,4 @@
+import datetime
 import typing
 
 import numpy as np
@@ -32,13 +33,13 @@ def plot_with_y_histogram(ax, x, y, smooth=True, hist_size="15%"):
     return ax_y_pdf
 
 
-def mpl_histo(ax, time, data, fiducial_vs, smooth=True, hist_size="15%",):
+def mpl_histo(ax, time, data, fiducial_vs, smooth=True, hist_size="15%", tz: 'typing.Optional[str | datetime.tzinfo]'=None):
     ax_y_pdf = plot_with_y_histogram(ax, time, data, smooth=smooth, hist_size=hist_size)
 
-    # ax.xaxis.set_major_locator(mpl.dates.AutoDateLocator())
-    # ax.xaxis.set_major_formatter(mpl.dates.ConciseDateFormatter(mpl.dates.AutoDateLocator()))
-    from datetime import timedelta
-    ax.xaxis.set_major_formatter(mpl.ticker.FuncFormatter(lambda dt, pos: timedelta(seconds=dt)))
+    loc = mpl.dates.AutoDateLocator(tz=tz)
+    ax.xaxis.set_major_locator(loc)
+    fmt = mpl.dates.ConciseDateFormatter(loc, tz=tz)
+    ax.xaxis.set_major_formatter(fmt)
 
     for i, (v, lc) in enumerate(zip(fiducial_vs, ("r", "g", "b"))):
         w = 3
@@ -48,7 +49,18 @@ def mpl_histo(ax, time, data, fiducial_vs, smooth=True, hist_size="15%",):
     return ax_y_pdf
 
 
-def plot_histogramed_positioning(fig_or_spec: 'Figure | SubplotSpec', fastrak_ds: xr.Dataset, measurements_ds=None, *, smooth=True, hist_size="15%", time_slice=slice(None), nirs_cmap: 'dict[str, typing.Any] | str | mpl.colors.Colormap'="Set2", nirs_alpha=0.4):
+def plot_histogramed_positioning(
+    fig_or_spec: 'Figure | SubplotSpec',
+    fastrak_ds: xr.Dataset,
+    measurements_ds=None, *,
+    smooth=True,
+    hist_size="15%",
+    time_slice: slice=slice(None),
+    tz: 'typing.Optional[str | datetime.tzinfo]'=None,
+    nirs_cmap: 'dict[str, typing.Any] | str | mpl.colors.Colormap'="Set2",
+    nirs_alpha=0.4,
+    use_nirs_time_subset_for_lim=False,
+    ):
     if isinstance(fig_or_spec, Figure):
         # Is entire figure
         gs = fig_or_spec.add_gridspec(4, 1)
@@ -66,22 +78,19 @@ def plot_histogramed_positioning(fig_or_spec: 'Figure | SubplotSpec', fastrak_ds
     time = time.sel(time=time_slice)
     position = position.sel(time=time_slice)
 
-    t0 = time[0]
-    time = (time - t0) / np.timedelta64(1, 's')
-
     location = fastrak_ds.coords["location"].item()
     axs[0].set_title(f"{location}-sensor positioning")
     # Position
     for ax, c in zip(axs[:-1], fastrak_ds.coords["cartesian_axes"]):
         v = position.sel(cartesian_axes=c)
-        ax_y_pdf = mpl_histo(ax, time, v, fastrak_ds.coords["fiducial_position"].sel(fastrak_idx=1, cartesian_axes=c), smooth=smooth, hist_size=hist_size)
+        ax_y_pdf = mpl_histo(ax, time, v, fastrak_ds.coords["fiducial_position"].sel(fastrak_idx=1, cartesian_axes=c), smooth=smooth, hist_size=hist_size, tz=tz)
         y_pdf_axs.append(ax_y_pdf)
         ax.set_ylabel(f"position {c.item()} (cm)")
 
     # Rho
     ax = axs[-1]
-    v = xr_vector_norm(position, dim="cartesian_axes")
-    ax_y_pdf = mpl_histo(ax, time, v, xr_vector_norm(fastrak_ds.coords["fiducial_position"].sel(fastrak_idx=1), dim="cartesian_axes"), smooth=smooth, hist_size=hist_size)
+    distance = xr_vector_norm(position, dim="cartesian_axes")
+    ax_y_pdf = mpl_histo(ax, time, distance, xr_vector_norm(fastrak_ds.coords["fiducial_position"].sel(fastrak_idx=1), dim="cartesian_axes"), smooth=smooth, hist_size=hist_size, tz=tz)
     y_pdf_axs.append(ax_y_pdf)
     ax.set_xlabel("measurement timestamp")
     ax.set_ylabel(f"distance (cm)")
@@ -97,13 +106,17 @@ def plot_histogramed_positioning(fig_or_spec: 'Figure | SubplotSpec', fastrak_ds
         else:
             cmap = mpl.cm.get_cmap(nirs_cmap, len(measurement_locations))
             colors = {l: cmap(i) for i, l in enumerate(measurement_locations)}
-        start = (measurements_ds.nirs_start_time - t0) / np.timedelta64(1, 's')
-        end = (measurements_ds.nirs_end_time - t0) / np.timedelta64(1, 's')
+        time_slices = [slice(s, e) for s, e in zip(measurements_ds.nirs_start_time.values, measurements_ds.nirs_end_time.values)]
         for ax in axs:
-            for span in zip(start, end):
-                mloc = span[0].coords["measurement_location"].item()
+            for (tspan, mloc) in zip(time_slices, measurements_ds.coords["measurement_location"].values):
                 c = colors[mloc]
-                ax.axvspan(*span, alpha=nirs_alpha, color=c, label=mloc)
+                ax.axvspan(tspan.start, tspan.stop, alpha=nirs_alpha, color=c, label=mloc)
+        if use_nirs_time_subset_for_lim:
+            for ax, v in zip(axs, [*(position.sel(cartesian_axes=c) for c in fastrak_ds.coords["cartesian_axes"]), distance]):
+                minv = min(v.sel(time=ts).min() for ts in time_slices)
+                maxv = max(v.sel(time=ts).max() for ts in time_slices)
+                margin = (maxv - minv) * ax.margin()[1]
+                ax.set_ylim(minv - margin, maxv + margin)
     return gs, axs, y_pdf_axs
 
 

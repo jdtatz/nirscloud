@@ -1,3 +1,4 @@
+import datetime
 import typing
 from itertools import product
 
@@ -295,16 +296,16 @@ class FastrakVisualization:
         clb.set_ticklabels(list(fastrak_mean_measurements_grouped.keys()))
         return ax, clb
 
-    def positioning_with_histogram_plot(self, fig, *, smooth=True, hist_size="15%", nirs_cmap: 'dict[str, typing.Any] | str | mpl.colors.Colormap'="Set2", nirs_alpha=0.4):
+    def positioning_with_histogram_plot(self, fig, *, smooth=True, hist_size="15%", tz: 'typing.Optional[str | datetime.tzinfo]'=None, nirs_cmap: 'dict[str, typing.Any] | str | mpl.colors.Colormap'="Set2", nirs_alpha=0.4, use_nirs_time_subset_for_lim=False):
         from .histos import (histogramed_positioning_legend,
                              plot_histogramed_positioning)
         t_max = self.measurements.nirs_end_time.max().values + np.timedelta64(30, "s")
         gs = fig.add_gridspec(1, 2)
-        histo_kwargs = dict(time_slice=slice(None, t_max), smooth=smooth, hist_size=hist_size, nirs_cmap=nirs_cmap, nirs_alpha=nirs_alpha,)
+        histo_kwargs = dict(time_slice=slice(None, t_max), smooth=smooth, hist_size=hist_size, nirs_cmap=nirs_cmap, nirs_alpha=nirs_alpha, tz=tz)
         _ = plot_histogramed_positioning(gs[0, 0], self.fastrak_ds.sel(location="head"), self.measurements, **histo_kwargs)
-        _ = plot_histogramed_positioning(gs[0, 1], self.fastrak_ds.sel(location="nirs"), self.measurements, **histo_kwargs)
+        _ = plot_histogramed_positioning(gs[0, 1], self.fastrak_ds.sel(location="nirs"), self.measurements, **histo_kwargs, use_nirs_time_subset_for_lim=use_nirs_time_subset_for_lim)
         lgd = histogramed_positioning_legend(fig)
-        fig.suptitle(f"Subject {self.fastrak_ds.subject.item()} on {np.datetime_as_string(self.fastrak_ds.time[0], unit='s')}")
+        fig.suptitle(f"Subject {self.fastrak_ds.subject.item()} on {np.datetime_as_string(self.fastrak_ds.time[0], unit='D', timezone=tz)}")
         return lgd
 
     def interactive_measurement_time_plot(self, ft_locs=("head", "nirs", "relative"), wavelength_indices=(0,), rho_idxs=(0, -1), figsize=(16, 8)):

@@ -115,7 +115,7 @@ def plot_histogramed_positioning(
             for ax, v in zip(axs, [*(position.sel(cartesian_axes=c) for c in fastrak_ds.coords["cartesian_axes"]), distance]):
                 minv = min(v.sel(time=ts).min() for ts in time_slices)
                 maxv = max(v.sel(time=ts).max() for ts in time_slices)
-                margin = (maxv - minv) * ax.margin()[1]
+                margin = (maxv - minv) * ax.margins()[1]
                 ax.set_ylim(minv - margin, maxv + margin)
     return gs, axs, y_pdf_axs
 

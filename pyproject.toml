@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "nirscloud-julia"
-version = "0.0.16"
+version = "0.0.17"
 description = "Julia's nirscloud utils"
 authors = ["Julia Tatz <tatz.j@northeastern.edu>"]
 include = ["nirscloud_julia/*.py", "nirscloud_julia/nirs_bokeh_theme.yml"]

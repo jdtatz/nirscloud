@@ -80,20 +80,17 @@ def plot_histogramed_positioning(
 
     location = fastrak_ds.coords["location"].item()
     axs[0].set_title(f"{location}-sensor positioning")
-    # Position
-    for ax, c in zip(axs[:-1], fastrak_ds.coords["cartesian_axes"]):
-        v = position.sel(cartesian_axes=c)
-        ax_y_pdf = mpl_histo(ax, time, v, fastrak_ds.coords["fiducial_position"].sel(fastrak_idx=1, cartesian_axes=c), smooth=smooth, hist_size=hist_size, tz=tz)
-        y_pdf_axs.append(ax_y_pdf)
-        ax.set_ylabel(f"position {c.item()} (cm)")
+    axs[-1].set_xlabel("measurement timestamp")
 
-    # Rho
-    ax = axs[-1]
-    distance = xr_vector_norm(position, dim="cartesian_axes")
-    ax_y_pdf = mpl_histo(ax, time, distance, xr_vector_norm(fastrak_ds.coords["fiducial_position"].sel(fastrak_idx=1), dim="cartesian_axes"), smooth=smooth, hist_size=hist_size, tz=tz)
-    y_pdf_axs.append(ax_y_pdf)
-    ax.set_xlabel("measurement timestamp")
-    ax.set_ylabel(f"distance (cm)")
+    values, fiducial_values, labels = zip(*(
+        *((position.sel(cartesian_axes=c), fastrak_ds.coords["fiducial_position"].sel(fastrak_idx=1, cartesian_axes=c), f"position {c.item()} (cm)") for c in fastrak_ds.coords["cartesian_axes"]),
+         (xr_vector_norm(position, dim="cartesian_axes"), xr_vector_norm(fastrak_ds.coords["fiducial_position"].sel(fastrak_idx=1), dim="cartesian_axes"), "distance (cm)")
+         ))
+
+    for ax, v, fv, l in zip(axs, values, fiducial_values, labels):
+        ax_y_pdf = mpl_histo(ax, time, v, fv, smooth=smooth, hist_size=hist_size, tz=tz)
+        y_pdf_axs.append(ax_y_pdf)
+        ax.set_ylabel(l)
 
     # Fix-up subplots
     fig.align_ylabels(axs)
@@ -112,9 +109,9 @@ def plot_histogramed_positioning(
                 c = colors[mloc]
                 ax.axvspan(tspan.start, tspan.stop, alpha=nirs_alpha, color=c, label=mloc)
         if use_nirs_time_subset_for_lim:
-            for ax, v in zip(axs, [*(position.sel(cartesian_axes=c) for c in fastrak_ds.coords["cartesian_axes"]), distance]):
-                minv = min(v.sel(time=ts).min() for ts in time_slices)
-                maxv = max(v.sel(time=ts).max() for ts in time_slices)
+            for ax, v, fv in zip(axs, values, fiducial_values):
+                minv = min(min(v.sel(time=ts).min() for ts in time_slices), fv.min())
+                maxv = max(max(v.sel(time=ts).max() for ts in time_slices), fv.max())
                 margin = (maxv - minv) * ax.margins()[1]
                 ax.set_ylim(minv - margin, maxv + margin)
     return gs, axs, y_pdf_axs

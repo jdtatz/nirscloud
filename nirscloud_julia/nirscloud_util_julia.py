@@ -93,7 +93,7 @@ def query_fastrak_meta(query={}):
 
 
 def query_nirs_meta(query={}):
-    return query_meta({"n_nirs_dedup.val":    {"$exists": True}, **query}, fields=["meta_id", *nirs_schema_fields])
+    return query_meta({"n_nirs_dedup.val": {"$exists": True}, **query}, fields=["meta_id", *nirs_schema_fields])
 
 
 

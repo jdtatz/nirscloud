@@ -21,6 +21,8 @@ def combine_measurements_ds(fastrak_ds: xr.Dataset, nirs_ds: xr.Dataset) -> xr.D
     fastrak_measurements = []
     for dt in xr.concat((nirs_ds.nirs_start_time, nirs_ds.nirs_start_time + nirs_ds.duration), dim="t").transpose("measurement", "t"):
         m = str(dt.measurement.values)
+        if m.startswith("CAL"):
+            continue
         start, end = dt.values
         t_slice = slice(start, end + 1)
         fastrak_time_sliced = fastrak_ds.sel(time=t_slice).drop_vars("measurement").rename_dims(time="fastrak_time") #.rename(time="fastrak_time")

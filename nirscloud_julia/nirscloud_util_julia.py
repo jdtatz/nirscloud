@@ -234,10 +234,13 @@ def load_fastrak_ds(subject_id: str, the_date: str) -> xr.Dataset:
     return fastrak_ds.assign_coords(fiducial_position=fiducial_ds.position, fiducial_orientation=fiducial_ds.orientation)
 
 
-def load_nirs_ds(subject_id: str, the_date: str) -> xr.Dataset:
-    db_results = query_nirs_meta({'subject_id.val': subject_id, 'the_date.val': the_date, 'measurement_id.val': {"$not": {"$regex": "CAL.*"}},})
+def load_nirs_ds(subject_id: str, the_date: str, with_calib: bool=True) -> xr.Dataset:
+    query = {'subject_id.val': subject_id, 'the_date.val': the_date,}
+    if not with_calib:
+        query['measurement_id.val'] = {"$not": {"$regex": "CAL.*"}}
+    db_results = query_nirs_meta(query)
     nirs_db_results = pd.DataFrame(db_results)
-    nirs_dss = [read_nirs_ds_from_meta(meta).sortby("time") for _, meta in nirs_db_results.iterrows() if not meta["measurement_id"].startswith("CAL")]
+    nirs_dss = [read_nirs_ds_from_meta(meta).sortby("time") for _, meta in nirs_db_results.iterrows()]
     nirs_ds = xr.concat(nirs_dss, dim="measurement")
     return nirs_ds
 

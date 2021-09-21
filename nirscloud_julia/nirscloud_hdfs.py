@@ -18,7 +18,7 @@ KAFKA_TOPICS_N = 'metaox_nirs_rs'
 KAFKA_TOPICS_FP = 'finapres_waveform2_s' #XXX use finapres_waveform_s if you can't find any record
 
 HDFS_NAMESERVICE = 'BabyNIRSHDFS'
-HDFS_PREFIX = PurePath("nirscloud") / PurePath("dedup")
+HDFS_PREFIX = PurePath("/nirscloud/dedup")
 HDFS_PREFIX_FT = HDFS_PREFIX / KAFKA_TOPICS_FT
 HDFS_PREFIX_N = HDFS_PREFIX / KAFKA_TOPICS_N
 HDFS_PREFIX_FP = HDFS_PREFIX / KAFKA_TOPICS_FP
@@ -36,8 +36,10 @@ def create_webhfs_client(spark_kerberos_principal=None, *, proxies={}, headers={
         babynirs_username = os.environ["JUPYTERHUB_USER"]
         spark_kerberos_principal = f'{babynirs_username}@BABYNIRS.ORG'
     url = ";".join(f"https://{m['host']}:{HDFS_HTTPS_PORT}" for m in HDFS_MASTERS)
-    name = gssapi.Name(spark_kerberos_principal, gssapi.NameType.user)
-    creds = gssapi.Credentials(name=name, usage="initiate")
+    # name = gssapi.Name(spark_kerberos_principal, gssapi.NameType.user)
+    # creds = gssapi.Credentials(name=name, usage="initiate")
+    name = gssapi.Name(spark_kerberos_principal, gssapi.NameType.kerberos_principal)
+    creds = gssapi.Credentials.acquire(name, store={"keytab": SPARK_KERBEROS_KEYTAB})
     session = Session()
     session.auth = HTTPSPNEGOAuth(creds=creds)
     session.proxies.update(proxies)
@@ -46,17 +48,16 @@ def create_webhfs_client(spark_kerberos_principal=None, *, proxies={}, headers={
 
 
 def read_data_from_meta(client: Client, meta: Meta, hdfs_prefix: PurePath):
+    def read_data(path: PurePath):
+        with client.read(path) as reader:
+            return ParquetFile(BytesIO(reader.read())).to_pandas()
+
     full_path = hdfs_prefix / meta.hdfs
-    if full_path.suffix == "":
-        part_folders = [full_path / d for d in client.list(full_path) if d.startswith("_part")]
-        files = [part_folder / f for part_folder in part_folders for f in client.list(part_folder) if f.endswith(".parquet")]
-        dfs = [ParquetFile(BytesIO(client.read(path).read())).to_pandas() for path in files]
-        df = pd.concat(dfs)
-        df.reset_index(inplace=True, drop=True)
-    else:
-        with client.read(full_path) as reader:
-            contents = BytesIO(reader.read())
-            df = ParquetFile(contents).to_pandas()
+    if client.status(full_path)["type"] == "FILE":
+        return read_data(full_path)
+    dfs = (read_data(PurePath(path) / file) for path, _, files in client.walk(full_path) for file in files if file.endswith(".parquet"))
+    df = pd.concat(dfs)
+    df.reset_index(inplace=True, drop=True)
     return df
 
 

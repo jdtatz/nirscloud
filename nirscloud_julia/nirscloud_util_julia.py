@@ -1,7 +1,7 @@
 import os
 import time
 import logging
-from pathlib import Path
+from pathlib import PurePath
 from datetime import date
 from typing import Optional
 
@@ -36,10 +36,10 @@ kafka_topics_N = 'metaox_nirs_rs'
 kafka_topics_FP = 'finapres_waveform2_s' #XXX use finapres_waveform_s if you can't find any record
 
 hdfs_nameservice = 'BabyNIRSHDFS'
-hdfs_prefix = "/nirscloud/dedup"
-hdfs_prefix_FT = f'{hdfs_prefix}/{kafka_topics_FT}'
-hdfs_prefix_N = f'{hdfs_prefix}/{kafka_topics_N}'
-hdfs_prefix_FP = f'{hdfs_prefix}/{kafka_topics_FP}'
+hdfs_prefix = PurePath("nirscloud") / PurePath("dedup")
+hdfs_prefix_FT = hdfs_prefix / kafka_topics_FT
+hdfs_prefix_N = hdfs_prefix / kafka_topics_N
+hdfs_prefix_FP = hdfs_prefix / kafka_topics_FP
 
 babynirs_username = os.environ["JUPYTERHUB_USER"]
 spark_kerberos_principal = f'{babynirs_username}@BABYNIRS.ORG'
@@ -101,8 +101,8 @@ class NIRSCloudHDFSError(NIRSCloudError):
     pass
 
 
-def read_data_from_meta(meta, hdfs_prefix):
-    full_path = Path(hdfs_prefix) / meta["hdfs_path"]
+def read_data_from_meta(meta, hdfs_prefix: PurePath):
+    full_path = hdfs_prefix / meta["hdfs_path"]
     err, df = nirscloud_util_hdfs.from_hdfs_path(str(full_path), False)
     if err:
         if type(err) is Exception:
@@ -111,7 +111,7 @@ def read_data_from_meta(meta, hdfs_prefix):
             raise err
     return df
 
-def read_data_from_meta_list(meta_list, hdfs_prefix):
+def read_data_from_meta_list(meta_list, hdfs_prefix: PurePath):
     return pd.concat([read_data_from_meta(meta, hdfs_prefix) for meta in meta_list])
 
 def convert_nano_ts_to_index_inplace(df: pd.DataFrame, timezone: Optional[str] = None):

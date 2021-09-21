@@ -1,38 +1,41 @@
 import os
+from pathlib import PurePath
 import requests
 import numpy as np
 import gssapi
 from requests_gssapi import HTTPSPNEGOAuth
 from hdfs import Client
 from requests import Session
+from io import BytesIO
 from fastparquet import ParquetFile
 import pandas as pd
 import xarray as xr
+from .nirscloud_mongo import Meta, FastrakMeta, NIRSMeta
 
 
-kafka_topics_FT = 'fastrak2_s'
-kafka_topics_N = 'metaox_nirs_rs'
-kafka_topics_FP = 'finapres_waveform2_s' #XXX use finapres_waveform_s if you can't find any record
+KAFKA_TOPICS_FT = 'fastrak2_s'
+KAFKA_TOPICS_N = 'metaox_nirs_rs'
+KAFKA_TOPICS_FP = 'finapres_waveform2_s' #XXX use finapres_waveform_s if you can't find any record
 
-hdfs_nameservice = 'BabyNIRSHDFS'
-hdfs_prefix = "/nirscloud/dedup"
-hdfs_prefix_FT = f'{hdfs_prefix}/{kafka_topics_FT}'
-hdfs_prefix_N = f'{hdfs_prefix}/{kafka_topics_N}'
-hdfs_prefix_FP = f'{hdfs_prefix}/{kafka_topics_FP}'
+HDFS_NAMESERVICE = 'BabyNIRSHDFS'
+HDFS_PREFIX = PurePath("nirscloud") / PurePath("dedup")
+HDFS_PREFIX_FT = HDFS_PREFIX / KAFKA_TOPICS_FT
+HDFS_PREFIX_N = HDFS_PREFIX / KAFKA_TOPICS_N
+HDFS_PREFIX_FP = HDFS_PREFIX / KAFKA_TOPICS_FP
 
-hdfs_masters = {'name': 'ceph2', 'host': 'ceph2.babynirs.org'}, {'name': 'babynirs2', 'host': 'babynirs2.babynirs.org'}, {'name': 'hdfs1', 'host': 'hdfs1.babynirs.org'}
-hdfs_https_port = 9870
-hdfs_http_port = 9871
+HDFS_MASTERS = {'name': 'ceph2', 'host': 'ceph2.babynirs.org'}, {'name': 'babynirs2', 'host': 'babynirs2.babynirs.org'}, {'name': 'hdfs1', 'host': 'hdfs1.babynirs.org'}
+HDFS_HTTPS_PORT = 9870
+HDFS_HTTP_PORT = 9871
 
-park_kerberos_keytab = "/home/jovyan/.spark/spark.keytab"
+SPARK_KERBEROS_KEYTAB = "/home/jovyan/.spark/spark.keytab"
 
 
 # TODO Verify webhdfs client impl
-def create_webhfs_client(spark_kerberos_principal=None, *, proxies={}, headers={}):
+def create_webhfs_client(spark_kerberos_principal=None, *, proxies={}, headers={}) -> Client:
     if spark_kerberos_principal is None:
         babynirs_username = os.environ["JUPYTERHUB_USER"]
         spark_kerberos_principal = f'{babynirs_username}@BABYNIRS.ORG'
-    url = ";".join(f"https://{m['host']}:{hdfs_https_port}" for m in hdfs_masters)
+    url = ";".join(f"https://{m['host']}:{HDFS_HTTPS_PORT}" for m in HDFS_MASTERS)
     name = gssapi.Name(spark_kerberos_principal, gssapi.NameType.user)
     creds = gssapi.Credentials(name=name, usage="initiate")
     session = Session()
@@ -42,12 +45,18 @@ def create_webhfs_client(spark_kerberos_principal=None, *, proxies={}, headers={
     return Client(url, session=session)
 
 
-def read_data_from_meta(client, meta, hdfs_prefix):
-    from pathlib import Path
-    full_path = Path(hdfs_prefix) / meta["hdfs_path"]
-    with client.read(full_path) as reader:
-        # contents = reader.read()
-        df = ParquetFile(reader).to_pandas()
+def read_data_from_meta(client: Client, meta: Meta, hdfs_prefix: PurePath):
+    full_path = hdfs_prefix / meta.hdfs
+    if full_path.suffix == "":
+        part_folders = [full_path / d for d in client.list(full_path) if d.startswith("_part")]
+        files = [part_folder / f for part_folder in part_folders for f in client.list(part_folder) if f.endswith(".parquet")]
+        dfs = [ParquetFile(BytesIO(client.read(path).read())).to_pandas() for path in files]
+        df = pd.concat(dfs)
+        df.reset_index(inplace=True, drop=True)
+    else:
+        with client.read(full_path) as reader:
+            contents = BytesIO(reader.read())
+            df = ParquetFile(contents).to_pandas()
     return df
 
 
@@ -58,16 +67,16 @@ def _to_datetime_scalar(v, unit='D'):
         return np.datetime64(v, unit)
 
 
-def read_fastrak_ds_from_meta(client, meta_dict):
+def read_fastrak_ds_from_meta(client: Client, meta: FastrakMeta, position_is_in_inches: bool = True):
     from scipy.spatial.transform import Rotation
 
-    df = read_data_from_meta(client, meta_dict, hdfs_prefix_FT)
+    df = read_data_from_meta(client, meta, HDFS_PREFIX_FT)
     orientation = Rotation.from_euler('ZYX', df[['a', 'e', 'r']].to_numpy(), degrees=True).as_quat()[..., [3, 0, 1, 2]]
     return xr.Dataset(
         {
             "idx": ("time", df["idx"]),
             # nirscloud metadata doesn't include units, but fastrak is probably giving inches
-            "position": (("time", "cartesian_axes"), df[["x", "y", "z"]] * 2.54, dict(units="cm")),
+            "position": (("time", "cartesian_axes"), (df[["x", "y", "z"]] * 2.54) if position_is_in_inches else df[["x", "y", "z"]], dict(units="cm")),
             "orientation": (("time", "quaternion_axes"), orientation),
             # "orientation": ("time", quaternion.as_quat_array(orientation)),
         },
@@ -75,29 +84,23 @@ def read_fastrak_ds_from_meta(client, meta_dict):
             "time": ("time", df["_nano_ts"].astype("datetime64[ns]")),
             "cartesian_axes": ("cartesian_axes", ["x", "y", "z"]),
             "quaternion_axes": ("quaternion_axes", ["w", "x", "y", "z"]),
-            "study": meta_dict["study_id"],
-            "subject": meta_dict["subject_id"],
-            "session": meta_dict["session_id"],
-            "measurement": meta_dict["measurement_id"],
-            "date": _to_datetime_scalar(meta_dict["the_date"]),
-            "note_id": meta_dict["note_id"],
-            "meta_id": meta_dict["meta_id"],
+            "study": meta.study,
+            "subject": meta.subject,
+            "session": meta.session,
+            "measurement": meta.measurement,
+            "date": _to_datetime_scalar(meta.date),
+            "note_id": meta.note,
+            "meta_id": meta.meta,
         },
     )
 
-def read_nirs_ds_from_meta(client, meta_dict):
-    df = read_data_from_meta(client, meta_dict, hdfs_prefix_N)
+def read_nirs_ds_from_meta(client: Client, meta: NIRSMeta):
+    df = read_data_from_meta(client, meta, HDFS_PREFIX_N)
     fix2d = lambda v: np.stack(v)
     fix3d = lambda v: np.stack([np.stack(arr) for arr in v])
-    if "nirsStartNanoTS" in meta_dict and "nirsEndNanoTS" in meta_dict:
-        start = _to_datetime_scalar(meta_dict["nirsStartNanoTS"], "ns")
-        end = _to_datetime_scalar(meta_dict["nirsEndNanoTS"], "ns")
-        assert df["_nano_ts"].min() == meta_dict["nirsStartNanoTS"]
-        assert df["_nano_ts"].max() == meta_dict["nirsEndNanoTS"]
-    else:
-        start = _to_datetime_scalar(df["_nano_ts"].min(), "ns")
-        end = _to_datetime_scalar(df["_nano_ts"].max(), "ns")
-    meta_dur = pd.to_timedelta(np.round(np.float64(meta_dict["duration"])), 's').to_numpy() if "duration" in meta_dict else None
+    start = _to_datetime_scalar(df["_nano_ts"].min(), "ns")
+    end = _to_datetime_scalar(df["_nano_ts"].max(), "ns")
+    meta_dur = pd.to_timedelta(np.round(np.float64(meta.duration)), 's').to_numpy() if meta.duration is not None else None
     dt_dur = np.round((end - start) / np.timedelta64(1, 's')).astype("timedelta64[s]")
     return xr.Dataset(
         {
@@ -112,14 +115,14 @@ def read_nirs_ds_from_meta(client, meta_dict):
             "nirs_start_time": start,
             "nirs_end_time": end,
             "duration": meta_dur if meta_dur is not None and not np.isnat(meta_dur) else dt_dur,
-            "wavelength": ("wavelength", meta_dict["nirsWavelengths"], dict(units="nm")),
-            "rho": ("rho", meta_dict["nirsDistances"], dict(units="cm")),
-            "study": meta_dict["study_id"],
-            "subject": meta_dict["subject_id"],
-            "session": meta_dict["session_id"],
-            "measurement": meta_dict["measurement_id"],
-            "date": _to_datetime_scalar(meta_dict["the_date"]),
-            "note_id": meta_dict["note_id"],
-            "meta_id": meta_dict["meta_id"],
+            "wavelength": ("wavelength", meta.nirs_wavelengths, dict(units="nm")),
+            "rho": ("rho", meta.nirs_distances, dict(units="cm")),
+            "study": meta.study,
+            "subject": meta.subject,
+            "session": meta.session,
+            "measurement": meta.measurement,
+            "date": _to_datetime_scalar(meta.date),
+            "note_id": meta.note,
+            "meta_id": meta.meta,
         },
     )

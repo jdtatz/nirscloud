@@ -39,7 +39,7 @@ def create_webhfs_client(spark_kerberos_principal=None, *, proxies={}, headers={
     # name = gssapi.Name(spark_kerberos_principal, gssapi.NameType.user)
     # creds = gssapi.Credentials(name=name, usage="initiate")
     name = gssapi.Name(spark_kerberos_principal, gssapi.NameType.kerberos_principal)
-    creds = gssapi.Credentials.acquire(name, store={"keytab": SPARK_KERBEROS_KEYTAB})
+    creds = gssapi.Credentials.acquire(name, store={"keytab": SPARK_KERBEROS_KEYTAB}).creds
     session = Session()
     session.auth = HTTPSPNEGOAuth(creds=creds)
     session.proxies.update(proxies)
@@ -68,10 +68,9 @@ def _to_datetime_scalar(v, unit='D'):
         return np.datetime64(v, unit)
 
 
-def read_fastrak_ds_from_meta(client: Client, meta: FastrakMeta, position_is_in_inches: bool = True):
+def fastrak_ds_from_raw_df(df: pd.DataFrame, meta: FastrakMeta, position_is_in_inches: bool = True):
     from scipy.spatial.transform import Rotation
 
-    df = read_data_from_meta(client, meta, HDFS_PREFIX_FT)
     orientation = Rotation.from_euler('ZYX', df[['a', 'e', 'r']].to_numpy(), degrees=True).as_quat()[..., [3, 0, 1, 2]]
     return xr.Dataset(
         {
@@ -95,8 +94,8 @@ def read_fastrak_ds_from_meta(client: Client, meta: FastrakMeta, position_is_in_
         },
     )
 
-def read_nirs_ds_from_meta(client: Client, meta: NIRSMeta):
-    df = read_data_from_meta(client, meta, HDFS_PREFIX_N)
+
+def nirs_ds_from_raw_df(df: pd.DataFrame, meta: NIRSMeta):
     fix2d = lambda v: np.stack(v)
     fix3d = lambda v: np.stack([np.stack(arr) for arr in v])
     start = _to_datetime_scalar(df["_nano_ts"].min(), "ns")
@@ -127,3 +126,11 @@ def read_nirs_ds_from_meta(client: Client, meta: NIRSMeta):
             "meta_id": meta.meta,
         },
     )
+
+
+def read_fastrak_ds_from_meta(client: Client, meta: FastrakMeta, position_is_in_inches: bool = True):
+    return fastrak_ds_from_raw_df(read_data_from_meta(client, meta, HDFS_PREFIX_FT), meta, position_is_in_inches=position_is_in_inches)
+
+
+def read_nirs_ds_from_meta(client: Client, meta: NIRSMeta):
+    return nirs_ds_from_raw_df(read_data_from_meta(client, meta, HDFS_PREFIX_N), meta)

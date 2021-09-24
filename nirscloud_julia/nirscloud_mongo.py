@@ -1,5 +1,5 @@
 import pymongo
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field, fields, MISSING
 from pathlib import PurePath, PurePosixPath, PureWindowsPath
 from typing import NewType, Any, Optional
 from collections.abc import Callable
@@ -17,8 +17,9 @@ def _to_real(v: Any) -> Real:
     return v if isinstance(v, Real) else float(v)
 
 
-def _from_query(key: str, converter: "Callable[[Any], Any]" = _id, **field_kwargs):
-    return field(metadata=dict(query_key=key, query_converter=converter), **field_kwargs)
+def _from_query(key: str, converter: "Callable[[Any], Any]" = _id, default=MISSING, default_factory=MISSING, **field_kwargs):
+    default_factory = (lambda: default) if default is not MISSING else default_factory
+    return field(metadata=dict(query_key=key, query_converter=converter, query_default_factory=default_factory), **field_kwargs)
 
 
 def _projection_index(v: dict, projection_key: str):
@@ -29,18 +30,19 @@ def _projection_index(v: dict, projection_key: str):
 
 @dataclass(frozen=True)
 class Meta:
-    mongo: Any = _from_query("_id")
-    meta: MetaId = _from_query("meta_id", MetaId)
-    group: MetaId = _from_query("group_id", MetaId)
-    measurement: MetaId = _from_query("measurement_id", MetaId)
-    note: MetaId = _from_query("note_id", MetaId)
-    postfix: MetaId = _from_query("postfix_id", MetaId)
-    session: MetaId = _from_query("session_id", MetaId)
-    study: MetaId = _from_query("study_id", MetaId)
-    subject: MetaId = _from_query("subject_id", MetaId)
-    date: datetime.date = _from_query("the_date", datetime.date.fromisoformat)
     hdfs: PurePath = _from_query("hdfs_path", PurePosixPath)
-    file_prefix: PurePath = _from_query("file_prefix", PureWindowsPath)
+    date: datetime.date = _from_query("the_date", datetime.date.fromisoformat)
+    meta: MetaId = _from_query("meta_id", MetaId)
+    measurement: MetaId = _from_query("measurement_id", MetaId)
+    subject: MetaId = _from_query("subject_id", MetaId)
+
+    group: MetaId = _from_query("group_id", MetaId, default="")
+    note: MetaId = _from_query("note_id", MetaId, default="")
+    postfix: MetaId = _from_query("postfix_id", MetaId, default="")
+    session: MetaId = _from_query("session_id", MetaId, default="")
+    study: MetaId = _from_query("study_id", MetaId, default="")
+    mongo: Any = _from_query("_id", default=None)
+    file_prefix: Optional[PurePath] = _from_query("file_prefix", PureWindowsPath, default=None)
 
     @classmethod
     def query_converters(cls) -> "dict[str, tuple[str, Callable[[Any], Any]]]":
@@ -49,12 +51,20 @@ class Meta:
     @classmethod
     def from_query(cls, query: "dict[str, Any]") -> "Meta":
         converters = cls.query_converters()
+        qdefaults = dict(cls.query_defaults())
         qfields = {k: f(qv) for k, f, qv in ((*converters[qk], qv) for qk, qv in query.items())}
-        return cls(**qfields)
+        return cls(**{**qdefaults, **qfields})
 
     @classmethod
     def query_keys(cls):
         yield from (f.metadata.get("query_key", f.name) for f in fields(cls))
+
+    @classmethod
+    def query_defaults(cls):
+        for f in fields(cls):
+            default_factory = f.metadata.get("query_default_factory", MISSING)
+            if default_factory is not MISSING:
+                yield (f.metadata.get("query_key", f.name), default_factory())
 
     @classmethod
     def projection_fields(cls):
@@ -68,13 +78,13 @@ class FastrakMeta(Meta):
 
 @dataclass(frozen=True)
 class NIRSMeta(Meta):
-    nirs_distances: "tuple[Real, ...]" = _from_query("nirsDistances", tuple)
-    nirs_wavelengths: "tuple[Real, ...]" = _from_query("nirsWavelengths", tuple)
+    nirs_distances: "list[Real]" = _from_query("nirsDistances", list)
+    nirs_wavelengths: "list[Real]" = _from_query("nirsWavelengths", list)
     nirs_hz: Real = _from_query("nirs_hz", _to_real)
-    dcs_distances: "tuple[Real, ...]" = _from_query("dcsDistances", tuple)
+    dcs_distances: "list[Real]" = _from_query("dcsDistances", list)
     dcs_wavelength: Real = _from_query("dcsWavelength", _to_real)
     dcs_hz: Real = _from_query("dcs_hz", _to_real)
-    gains: "tuple[Real, ...]" = _from_query("gains", tuple)
+    gains: "list[Real]" = _from_query("gains", list)
     duration: Optional[datetime.timedelta] = _from_query("duration", lambda v: datetime.timedelta(seconds=_to_real(v)), default=None)
 
 

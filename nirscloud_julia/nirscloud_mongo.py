@@ -64,7 +64,7 @@ class Meta:
         for f in fields(cls):
             default_factory = f.metadata.get("query_default_factory", MISSING)
             if default_factory is not MISSING:
-                yield (f.metadata.get("query_key", f.name), default_factory())
+                yield (f.name, default_factory())
 
     @classmethod
     def projection_fields(cls):

@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "nirscloud-julia"
-version = "0.1.3"
+version = "0.1.4"
 description = "Julia's nirscloud utils"
 authors = ["Julia Tatz <tatz.j@northeastern.edu>"]
 include = ["nirscloud_julia/*.py", "nirscloud_julia/nirs_bokeh_theme.yml"]
@@ -9,7 +9,7 @@ include = ["nirscloud_julia/*.py", "nirscloud_julia/nirs_bokeh_theme.yml"]
 python = ">=3.7.1,<3.10"
 numpy = "~1.21"
 scipy = "~1.7"
-numpy-quaternion = "~2021.7"
+numpy-quaternion = ">=2021.7"
 xarray = "~0.19"
 pymongo = "~3.12"
 matplotlib = "~3.4"
@@ -19,7 +19,7 @@ requests = "~2.26"
 hdfs = "~2.6"
 requests-gssapi = "~1.2"
 numba = "~0.53"
-fastparquet = "^0.7.1"
+pyarrow = ">=4"
 
 [tool.poetry.dev-dependencies]
 ipywidgets = ">=7.6"

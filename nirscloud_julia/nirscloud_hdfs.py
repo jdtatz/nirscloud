@@ -7,7 +7,6 @@ from requests_gssapi import HTTPSPNEGOAuth
 from hdfs import Client
 from requests import Session
 from io import BytesIO
-from fastparquet import ParquetFile
 import pandas as pd
 import xarray as xr
 from .nirscloud_mongo import Meta, FastrakMeta, NIRSMeta
@@ -50,7 +49,7 @@ def create_webhfs_client(spark_kerberos_principal=None, *, proxies={}, headers={
 def read_data_from_meta(client: Client, meta: Meta, hdfs_prefix: PurePath):
     def read_data(path: PurePath):
         with client.read(path) as reader:
-            return ParquetFile(BytesIO(reader.read())).to_pandas()
+            return pd.read_parquet(BytesIO(reader.read()))
 
     full_path = hdfs_prefix / meta.hdfs
     if client.status(full_path)["type"] == "FILE":
@@ -95,20 +94,25 @@ def fastrak_ds_from_raw_df(df: pd.DataFrame, meta: FastrakMeta, position_is_in_i
     )
 
 
+def _fix_nested_array(array: np.ndarray):
+    if array.dtype == np.object_:
+        return np.stack([_fix_nested_array(a) for a in array])
+    else:
+        return array
+
+
 def nirs_ds_from_raw_df(df: pd.DataFrame, meta: NIRSMeta):
-    fix2d = lambda v: np.stack(v)
-    fix3d = lambda v: np.stack([np.stack(arr) for arr in v])
     start = _to_datetime_scalar(df["_nano_ts"].min(), "ns")
     end = _to_datetime_scalar(df["_nano_ts"].max(), "ns")
     meta_dur = pd.to_timedelta(np.round(np.float64(meta.duration)), 's').to_numpy() if meta.duration is not None else None
     dt_dur = np.round((end - start) / np.timedelta64(1, 's')).astype("timedelta64[s]")
     return xr.Dataset(
         {
-            "ac": (("time", "wavelength", "rho"), fix3d(df["ac"].values)),
-            "phase": (("time", "wavelength", "rho"), fix3d(df["phase"].values), dict(units="deg")),
-            "dc": (("time", "wavelength", "rho"), fix3d(df["dc"].values)),
-            "dark": (("time", "rho"), fix2d(df["dark"].values)),
-            "aux": (("time", "rho"), fix2d(df["aux"].values)),
+            "ac": (("time", "wavelength", "rho"), _fix_nested_array(df["ac"])),
+            "phase": (("time", "wavelength", "rho"), _fix_nested_array(df["phase"]), dict(units="deg")),
+            "dc": (("time", "wavelength", "rho"), _fix_nested_array(df["dc"])),
+            "dark": (("time", "rho"), _fix_nested_array(df["dark"])),
+            "aux": (("time", "rho"), _fix_nested_array(df["aux"])),
         },
         coords={
             "time": ("time", df["_offset_nano_ts"].astype("timedelta64[ns]")),

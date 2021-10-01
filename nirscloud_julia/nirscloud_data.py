@@ -13,7 +13,7 @@ __all__ = [
 ]
 
 
-def load_fastrak_fiducial_ds(mongo_client, webhdfs_client, note_id: str) -> xr.Dataset:
+def load_fastrak_fiducial_ds(mongo_client, webhdfs_client, note_id: str, position_is_in_inches: bool = True) -> xr.Dataset:
     fiducials = []
     measurement_id_prefixs = "ftmidnose", "ftleftear", "ftrightear"
     fiducial_locs = "nose", "left_ear", "right_ear"
@@ -25,7 +25,7 @@ def load_fastrak_fiducial_ds(mongo_client, webhdfs_client, note_id: str) -> xr.D
                 "measurement_id.val": {"$regex": f"{measurement_id_prefix}_\\d+"},
             },
         )
-        fastrak_ds = read_fastrak_ds_from_meta(webhdfs_client, fastrak_meta)
+        fastrak_ds = read_fastrak_ds_from_meta(webhdfs_client, fastrak_meta, position_is_in_inches=position_is_in_inches)
         fiducial_ds = (
             xr.concat(dict(fastrak_ds.groupby("idx")).values(), dim="fastrak_idx")
             .squeeze("time")
@@ -42,7 +42,7 @@ def load_fastrak_fiducial_ds(mongo_client, webhdfs_client, note_id: str) -> xr.D
 
 
 def load_fastrak_ds(
-    mongo_client, webhdfs_client, subject_id: str, the_date: str
+    mongo_client, webhdfs_client, subject_id: str, the_date: str, position_is_in_inches: bool = True
 ) -> xr.Dataset:
     pencil_idx = 0
     head_idx = 1
@@ -56,7 +56,7 @@ def load_fastrak_ds(
             "measurement_id.val": {"$regex": f"{measurement_id_prefix}_\\d+"},
         },
     )
-    fastrak_ds = read_fastrak_ds_from_meta(webhdfs_client, fastrak_meta)
+    fastrak_ds = read_fastrak_ds_from_meta(webhdfs_client, fastrak_meta, position_is_in_inches=position_is_in_inches)
     fstrk_grps = dict(fastrak_ds.groupby("idx", restore_coord_dims=True))
     fastrak_ds = xr.concat(
         [
@@ -95,7 +95,7 @@ def load_fastrak_ds(
         dim="location",
     )
     fiducial_ds = load_fastrak_fiducial_ds(
-        mongo_client, webhdfs_client, fastrak_ds.coords["note_id"].item()
+        mongo_client, webhdfs_client, fastrak_ds.coords["note_id"].item(), position_is_in_inches=position_is_in_inches
     )
     return fastrak_ds.assign_coords(
         fiducial_position=fiducial_ds.position,

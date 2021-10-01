@@ -174,7 +174,7 @@ def read_fastrak_ds_from_meta(
         read_data_from_meta(
             client,
             meta,
-            HDFS_PREFIX_FT if position_is_in_inches else KAFKA_TOPICS_FT_CM,
+            HDFS_PREFIX_FT if position_is_in_inches else HDFS_PREFIX_FT_CM,
         ),
         meta,
         position_is_in_inches=position_is_in_inches,

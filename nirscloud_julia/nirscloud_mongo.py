@@ -17,9 +17,22 @@ def _to_real(v: Any) -> Real:
     return v if isinstance(v, Real) else float(v)
 
 
-def _from_query(key: str, converter: "Callable[[Any], Any]" = _id, default=MISSING, default_factory=MISSING, **field_kwargs):
+def _from_query(
+    key: str,
+    converter: "Callable[[Any], Any]" = _id,
+    default=MISSING,
+    default_factory=MISSING,
+    **field_kwargs,
+):
     default_factory = (lambda: default) if default is not MISSING else default_factory
-    return field(metadata=dict(query_key=key, query_converter=converter, query_default_factory=default_factory), **field_kwargs)
+    return field(
+        metadata=dict(
+            query_key=key,
+            query_converter=converter,
+            query_default_factory=default_factory,
+        ),
+        **field_kwargs,
+    )
 
 
 def _projection_index(v: dict, projection_key: str):
@@ -42,17 +55,27 @@ class Meta:
     session: MetaId = _from_query("session_id", MetaId, default="")
     study: MetaId = _from_query("study_id", MetaId, default="")
     mongo: Any = _from_query("_id", default=None)
-    file_prefix: Optional[PurePath] = _from_query("file_prefix", PureWindowsPath, default=None)
+    file_prefix: Optional[PurePath] = _from_query(
+        "file_prefix", PureWindowsPath, default=None
+    )
 
     @classmethod
     def query_converters(cls) -> "dict[str, tuple[str, Callable[[Any], Any]]]":
-        return {f.metadata.get("query_key", f.name): (f.name, f.metadata.get("query_converter", _id)) for f in fields(cls)}
+        return {
+            f.metadata.get("query_key", f.name): (
+                f.name,
+                f.metadata.get("query_converter", _id),
+            )
+            for f in fields(cls)
+        }
 
     @classmethod
     def from_query(cls, query: "dict[str, Any]") -> "Meta":
         converters = cls.query_converters()
         qdefaults = dict(cls.query_defaults())
-        qfields = {k: f(qv) for k, f, qv in ((*converters[qk], qv) for qk, qv in query.items())}
+        qfields = {
+            k: f(qv) for k, f, qv in ((*converters[qk], qv) for qk, qv in query.items())
+        }
         return cls(**{**qdefaults, **qfields})
 
     @classmethod
@@ -85,19 +108,21 @@ class NIRSMeta(Meta):
     dcs_wavelength: Real = _from_query("dcsWavelength", _to_real)
     dcs_hz: Real = _from_query("dcs_hz", _to_real)
     gains: "list[Real]" = _from_query("gains", list)
-    duration: Optional[datetime.timedelta] = _from_query("duration", lambda v: datetime.timedelta(seconds=_to_real(v)), default=None)
+    duration: Optional[datetime.timedelta] = _from_query(
+        "duration", lambda v: datetime.timedelta(seconds=_to_real(v)), default=None
+    )
 
 
 def create_client(
-    host='mongos.mongo.svc.cluster.local',
+    host="mongos.mongo.svc.cluster.local",
     port=27017,
     ssl=True,
     authSource="$external",
     authMechanism="MONGODB-X509",
     # Changed in version 3.12: ssl_certfile and ssl_keyfile were deprecated in favor of tlsCertificateKeyFile.
-    ssl_certfile='/etc/mongo/jhub-keypem.pem',
-    ssl_ca_certs='/etc/mongo/root-ca.pem',
-    **extra_kwargs
+    ssl_certfile="/etc/mongo/jhub-keypem.pem",
+    ssl_ca_certs="/etc/mongo/root-ca.pem",
+    **extra_kwargs,
 ) -> pymongo.MongoClient:
     return pymongo.MongoClient(
         host=host,
@@ -107,8 +132,9 @@ def create_client(
         authMechanism=authMechanism,
         ssl_certfile=ssl_certfile,
         ssl_ca_certs=ssl_ca_certs,
-        **extra_kwargs
+        **extra_kwargs,
     )
+
 
 META_DATABASE_KEY: str = "meta"
 META_COLLECTION_KEY: str = "meta3"
@@ -117,13 +143,41 @@ META_COLLECTION_KEY: str = "meta3"
 def query_meta(client: pymongo.MongoClient, query: dict, fields=None, find_kwargs=None):
     db: pymongo.Database = client[META_DATABASE_KEY]
     col: pymongo.Collection = db[META_COLLECTION_KEY]
-    cursor: pymongo.Cursor = col.find(filter=query, projection=[f if f in ("_id", "meta_id") else f"{f}.val" for f in fields] if fields is not None else None, **(find_kwargs or {}))
-    yield from ({k: (v["val"] if isinstance(v, dict) and "val" in v else v) for k, v in doc.items()} for doc in cursor)
+    cursor: pymongo.Cursor = col.find(
+        filter=query,
+        projection=[f if f in ("_id", "meta_id") else f"{f}.val" for f in fields]
+        if fields is not None
+        else None,
+        **(find_kwargs or {}),
+    )
+    yield from (
+        {
+            k: (v["val"] if isinstance(v, dict) and "val" in v else v)
+            for k, v in doc.items()
+        }
+        for doc in cursor
+    )
 
 
 def query_fastrak_meta(client: pymongo.MongoClient, query={}, find_kwargs=None):
-    yield from map(FastrakMeta.from_query, query_meta(client, {"n_fastrak_dedup.val": {"$exists": True}, **query}, fields=FastrakMeta.query_keys(), find_kwargs=find_kwargs))
+    yield from map(
+        FastrakMeta.from_query,
+        query_meta(
+            client,
+            {"n_fastrak_dedup.val": {"$exists": True}, **query},
+            fields=FastrakMeta.query_keys(),
+            find_kwargs=find_kwargs,
+        ),
+    )
 
 
 def query_nirs_meta(client: pymongo.MongoClient, query={}, find_kwargs=None):
-    yield from map(NIRSMeta.from_query, query_meta(client, {"n_nirs_dedup.val": {"$exists": True}, **query}, fields=NIRSMeta.query_keys(), find_kwargs=find_kwargs))
+    yield from map(
+        NIRSMeta.from_query,
+        query_meta(
+            client,
+            {"n_nirs_dedup.val": {"$exists": True}, **query},
+            fields=NIRSMeta.query_keys(),
+            find_kwargs=find_kwargs,
+        ),
+    )

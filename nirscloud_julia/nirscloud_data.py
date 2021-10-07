@@ -27,9 +27,8 @@ def load_fastrak_fiducial_ds(mongo_client, webhdfs_client, note_id: str, positio
         )
         fastrak_ds = read_fastrak_ds_from_meta(webhdfs_client, fastrak_meta, position_is_in_inches=position_is_in_inches)
         fiducial_ds = (
-            xr.concat(dict(fastrak_ds.groupby("idx")).values(), dim="fastrak_idx")
+            fastrak_ds
             .squeeze("time")
-            .set_coords("idx")
             .rename(time="fiducial_time", idx="fastrak_idx")
         )
         fiducial_ds.coords["fiducial"] = (), loc
@@ -57,11 +56,10 @@ def load_fastrak_ds(
         },
     )
     fastrak_ds = read_fastrak_ds_from_meta(webhdfs_client, fastrak_meta, position_is_in_inches=position_is_in_inches)
-    fstrk_grps = dict(fastrak_ds.groupby("idx", restore_coord_dims=True))
     fastrak_ds = xr.concat(
         [
-            fstrk_grps[head_idx].drop_vars("idx"),
-            fstrk_grps[nirs_idx].drop_vars("idx"),
+            fastrak_ds.sel(idx=head_idx),
+            fastrak_ds.sel(idx=nirs_idx),
         ],
         pd.Index(["head", "nirs"], name="location"),
     )

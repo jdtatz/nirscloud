@@ -10,7 +10,6 @@ import numpy as np
 import quaternion
 import xarray as xr
 from matplotlib.gridspec import GridSpecFromSubplotSpec, SubplotSpec
-from scipy import interpolate
 from scipy.spatial.transform import Rotation
 
 from dual_quaternion import DualQuaternion

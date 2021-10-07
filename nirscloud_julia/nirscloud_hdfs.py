@@ -1,6 +1,5 @@
 import os
 from pathlib import PurePath
-import requests
 import numpy as np
 import gssapi
 from requests_gssapi import HTTPSPNEGOAuth
@@ -92,7 +91,7 @@ def fastrak_ds_from_raw_df(
     orientation = Rotation.from_euler(
         "ZYX", df[["a", "e", "r"]].to_numpy(), degrees=True
     ).as_quat()[..., [3, 0, 1, 2]]
-    return xr.Dataset(
+    ds = xr.Dataset(
         {
             "idx": ("time", df["idx"]),
             # nirscloud metadata doesn't include units, but fastrak is probably giving inches
@@ -117,6 +116,9 @@ def fastrak_ds_from_raw_df(
             "meta_id": meta.meta,
         },
     )
+    ks, vs = zip(*ds.groupby("idx"))
+    ds = xr.concat([v.drop_vars("idx") for v in vs], pd.Index(ks, name="idx"))
+    return ds.sortby("time")
 
 
 def _fix_nested_array(array: np.ndarray):

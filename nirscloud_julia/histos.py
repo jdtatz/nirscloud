@@ -84,6 +84,7 @@ def plot_histogramed_positioning(
     smooth=True,
     hist_size="15%",
     time_slice: slice = slice(None),
+    fiducial_idx: int = 1,
     tz: "typing.Optional[str | datetime.tzinfo]" = None,
     nirs_cmap: "dict[str, typing.Any] | str | mpl.colors.Colormap" = "Set2",
     nirs_alpha=0.4,
@@ -118,7 +119,7 @@ def plot_histogramed_positioning(
                 (
                     position.sel(cartesian_axes=c),
                     fastrak_ds.coords["fiducial_position"].sel(
-                        fastrak_idx=1, cartesian_axes=c
+                        fastrak_idx=fiducial_idx, cartesian_axes=c
                     ),
                     f"position {c.item()} (cm)",
                 )
@@ -127,7 +128,7 @@ def plot_histogramed_positioning(
             (
                 xr_vector_norm(position, dim="cartesian_axes"),
                 xr_vector_norm(
-                    fastrak_ds.coords["fiducial_position"].sel(fastrak_idx=1),
+                    fastrak_ds.coords["fiducial_position"].sel(fastrak_idx=fiducial_idx),
                     dim="cartesian_axes",
                 ),
                 "distance (cm)",

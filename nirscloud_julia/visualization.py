@@ -17,6 +17,17 @@ from nirscloud_julia.mpl_marker import marker_with_text
 from nirscloud_julia.nirscloud_data import combine_measurements_ds
 
 
+def make_concise_datetime_formatter_default():
+    import datetime
+    import matplotlib.dates as mdates
+    import matplotlib.units as munits
+
+    converter = mdates.ConciseDateConverter()
+    munits.registry[np.datetime64] = converter
+    munits.registry[datetime.date] = converter
+    munits.registry[datetime.datetime] = converter
+
+
 def auto_fig_size(height, width):
     return plt.figaspect(height / width)
 
@@ -403,6 +414,7 @@ class FastrakVisualization:
         nirs_alpha: float = 0.4,
         plot_relative: bool = False,
         use_nirs_time_subset_for_lim=False,
+        fiducial_idx: int = 0,
     ):
         from .histos import histogramed_positioning_legend, plot_histogramed_positioning
 
@@ -418,13 +430,13 @@ class FastrakVisualization:
         )
         _ = plot_histogramed_positioning(
             gs[0, 0],
-            self.fastrak_ds.sel(location="head"),
+            self.fastrak_ds.sel(location="head", fastrak_idx=fiducial_idx),
             self.measurements,
             **histo_kwargs,
         )
         _ = plot_histogramed_positioning(
             gs[0, 1],
-            self.fastrak_ds.sel(location="nirs"),
+            self.fastrak_ds.sel(location="nirs", fastrak_idx=fiducial_idx),
             self.measurements,
             **histo_kwargs,
             use_nirs_time_subset_for_lim=use_nirs_time_subset_for_lim,
@@ -432,7 +444,7 @@ class FastrakVisualization:
         if plot_relative:
             _ = plot_histogramed_positioning(
                 gs[0, 2],
-                self.fastrak_ds.sel(location="relative"),
+                self.fastrak_ds.sel(location="relative", fastrak_idx=fiducial_idx),
                 self.measurements,
                 **histo_kwargs,
                 use_nirs_time_subset_for_lim=use_nirs_time_subset_for_lim,

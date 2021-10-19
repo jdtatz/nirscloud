@@ -56,7 +56,7 @@ def mpl_histo(
     ax,
     time,
     data,
-    fiducial_vs,
+    constants: typing.Dict[str, typing.Tuple[float, str]],
     smooth=True,
     hist_size="15%",
     tz: "typing.Optional[str | datetime.tzinfo]" = None,
@@ -68,11 +68,12 @@ def mpl_histo(
     fmt = mpl.dates.ConciseDateFormatter(loc, tz=tz)
     ax.xaxis.set_major_formatter(fmt)
 
-    for i, (v, lc) in enumerate(zip(fiducial_vs, ("r", "g", "b"))):
-        w = 3
-        ls = w * i, (w, 2 * w)
-        ax.axhline(v, color=lc, ls=ls, zorder=0.5, label=v.fiducial.item())
-        ax_y_pdf.axhline(v, color=lc, ls=ls, zorder=0.5, label=v.fiducial.item())
+    n = len(constants)
+    for i, (label, (v, color)) in enumerate(constants.items()):
+        w = n
+        ls = w * i, (w, (n - 1) * w)
+        ax.axhline(v, color=color, ls=ls, zorder=0.5, label=label)
+        ax_y_pdf.axhline(v, color=color, ls=ls, zorder=0.5, label=label)
     return ax_y_pdf
 
 
@@ -118,25 +119,21 @@ def plot_histogramed_positioning(
             *(
                 (
                     position.sel(cartesian_axes=c),
-                    fastrak_ds.coords["fiducial_position"].sel(
-                        fastrak_idx=fiducial_idx, cartesian_axes=c
-                    ),
+                    fastrak_ds.coords["fiducial_position"].sel(cartesian_axes=c),
                     f"position {c.item()} (cm)",
                 )
                 for c in fastrak_ds.coords["cartesian_axes"]
             ),
             (
                 xr_vector_norm(position, dim="cartesian_axes"),
-                xr_vector_norm(
-                    fastrak_ds.coords["fiducial_position"].sel(fastrak_idx=fiducial_idx),
-                    dim="cartesian_axes",
-                ),
+                xr_vector_norm(fastrak_ds.coords["fiducial_position"],dim="cartesian_axes",),
                 "distance (cm)",
             ),
         )
     )
+    fiducial_constants = ({v.fiducial.item(): (v, c) for v, c in zip(fv, ("r", "g", "b"))} for fv in fiducial_values)
 
-    for ax, v, fv, l in zip(axs, values, fiducial_values, labels):
+    for ax, v, fv, l in zip(axs, values, fiducial_constants, labels):
         ax_y_pdf = mpl_histo(ax, time, v, fv, smooth=smooth, hist_size=hist_size, tz=tz)
         y_pdf_axs.append(ax_y_pdf)
         ax.set_ylabel(l)

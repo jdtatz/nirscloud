@@ -16,6 +16,8 @@ KAFKA_TOPICS_FT_CM = "fastrak_cm_s"
 KAFKA_TOPICS_N = "metaox_nirs_rs"
 KAFKA_TOPICS_FP = "finapres_waveform_s"
 KAFKA_TOPICS_FP_2 = "finapres_waveform2_s"
+KAFKA_TOPICS_PM = "ixtrend_waves5_s"
+KAFKA_TOPICS_PM_N = "ixtrend_numerics2_s"
 
 HDFS_NAMESERVICE = "BabyNIRSHDFS"
 HDFS_PREFIX = PurePath("/nirscloud/dedup")
@@ -24,6 +26,29 @@ HDFS_PREFIX_FT_CM = HDFS_PREFIX / KAFKA_TOPICS_FT_CM
 HDFS_PREFIX_N = HDFS_PREFIX / KAFKA_TOPICS_N
 HDFS_PREFIX_FP = HDFS_PREFIX / KAFKA_TOPICS_FP
 HDFS_PREFIX_FP_2 = HDFS_PREFIX / KAFKA_TOPICS_FP_2
+HDFS_PREFIX_PM = HDFS_PREFIX / KAFKA_TOPICS_PM
+HDFS_PREFIX_PM_N = HDFS_PREFIX / KAFKA_TOPICS_PM_N
+
+PATIENT_MONITOR_COMPONENT_MAPPING = {
+    0x013D: 'III',
+    0x0102: 'II',
+    0x013E: 'aVR',
+    0x0140: 'aVF',
+    0x4BB4: 'Pleth',
+    0x4A14: 'ABP',
+    0x5000: 'Resp',
+    0x0104: 'Compound ECG-II',
+
+    0x4182: 'HR',
+    0x4A05: 'NBP-SYS',
+    0x4A06: 'NBP-DIA',
+    0x4A07: 'NBP-MEAN',
+    0x4BB8: 'SpO2',
+    0x4822: 'Pulse.1',
+    0x500A: 'RR',
+    0x4BB0: 'Perf-REL',
+    0x480A: 'Pulse',
+}
 
 HDFS_MASTERS = (
     {"name": "ceph2", "host": "ceph2.babynirs.org"},

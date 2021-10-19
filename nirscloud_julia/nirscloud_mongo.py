@@ -1,3 +1,4 @@
+import typing
 import pymongo
 from dataclasses import dataclass, field, fields, MISSING
 from pathlib import PurePath, PurePosixPath, PureWindowsPath
@@ -113,6 +114,17 @@ class NIRSMeta(Meta):
     )
 
 
+@dataclass(frozen=True)
+class FinapresMeta(Meta):
+    # device_id
+    pass
+
+
+@dataclass(frozen=True)
+class PatientMonitorMeta(Meta):
+    pass
+
+
 def create_client(
     host="mongos.mongo.svc.cluster.local",
     port=27017,
@@ -159,25 +171,29 @@ def query_meta(client: pymongo.MongoClient, query: dict, fields=None, find_kwarg
     )
 
 
-def query_fastrak_meta(client: pymongo.MongoClient, query={}, find_kwargs=None):
+def query_meta_typed(client: pymongo.MongoClient, query={}, find_kwargs=None, meta_type: typing.Type[Meta] = Meta):
     yield from map(
-        FastrakMeta.from_query,
+        meta_type.from_query,
         query_meta(
             client,
-            {"n_fastrak_dedup.val": {"$exists": True}, **query},
-            fields=FastrakMeta.query_keys(),
+            query,
+            fields=meta_type.query_keys(),
             find_kwargs=find_kwargs,
         ),
     )
+
+
+def query_fastrak_meta(client: pymongo.MongoClient, query={}, find_kwargs=None):
+    yield from query_meta_typed(client, query={"n_fastrak_dedup.val": {"$exists": True}, **query}, find_kwargs=find_kwargs, meta_type=FastrakMeta)
 
 
 def query_nirs_meta(client: pymongo.MongoClient, query={}, find_kwargs=None):
-    yield from map(
-        NIRSMeta.from_query,
-        query_meta(
-            client,
-            {"n_nirs_dedup.val": {"$exists": True}, **query},
-            fields=NIRSMeta.query_keys(),
-            find_kwargs=find_kwargs,
-        ),
-    )
+    yield from query_meta_typed(client, query={"n_nirs_dedup.val": {"$exists": True}, **query}, find_kwargs=find_kwargs, meta_type=NIRSMeta)
+
+
+def query_finapres_meta(client: pymongo.MongoClient, query={}, find_kwargs=None):
+    yield from query_meta_typed(client, query={"n_waveform_dedup.val": {"$exists": True}, **query}, find_kwargs=find_kwargs, meta_type=FinapresMeta)
+
+
+def query_patient_monitor_meta(client: pymongo.MongoClient, query={}, find_kwargs=None):
+    yield from query_meta_typed(client, query={"n_waves_dedup.val": {"$exists": True}, "n_numerics_dedup.val": {"$exists": True}, **query}, find_kwargs=find_kwargs, meta_type=PatientMonitorMeta)

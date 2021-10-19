@@ -97,8 +97,28 @@ class Meta:
 
 
 @dataclass(frozen=True)
+class NotesMeta(Meta):
+    duration: Optional[int] = _from_query(
+        "duration", lambda v: datetime.timedelta(seconds=_to_real(v)), default=None
+    )
+    is_fastrak: bool = _from_query("isFasTrak", bool, default=False)
+    is_finapres: bool = _from_query("isFinapres", bool, default=False)
+    is_metaox: bool = _from_query("isMetaOx", bool, default=False)
+    is_pm: bool = _from_query("isPM", bool, default=False)
+    is_with_hairline: bool = _from_query("isWithHairline", bool, default=False)
+    is_with_probe: bool = _from_query("isWithProbe", bool, default=False)
+    measurement_sites: "list[str]" = _from_query(
+        "measurementSites", list, default_factory=list
+    )
+    pm_info: "dict[str, Any]" = _from_query("pm", default_factory=dict)
+    locations_measured: "list[str]" = _from_query(
+        "locations_measured", list, default_factory=list
+    )
+
+
+@dataclass(frozen=True)
 class FastrakMeta(Meta):
-    pass
+    is_cm: bool = _from_query("is_fastrak_cm", bool, default=False)
 
 
 @dataclass(frozen=True)
@@ -110,11 +130,21 @@ class NIRSMeta(Meta):
     dcs_wavelength: Real = _from_query("dcsWavelength", _to_real)
     dcs_hz: Real = _from_query("dcs_hz", _to_real)
     gains: "list[Real]" = _from_query("gains", list)
-    duration: Optional[datetime.timedelta] = _from_query("duration", lambda v: datetime.timedelta(seconds=_to_real(v)), default=None)
-    nirs_start: Optional[np.datetime64] = _from_query("nirsStartNanoTS", lambda v: np.datetime64(v, 'ns'), default=None)
-    nirs_end: Optional[np.datetime64] = _from_query("nirsEndNanoTS", lambda v: np.datetime64(v, 'ns'), default=None)
-    dcs_start: Optional[np.datetime64] = _from_query("dcsStartNanoTS", lambda v: np.datetime64(v, 'ns'), default=None)
-    dcs_end: Optional[np.datetime64] = _from_query("dcsEndNanoTS", lambda v: np.datetime64(v, 'ns'), default=None)
+    duration: Optional[datetime.timedelta] = _from_query(
+        "duration", lambda v: datetime.timedelta(seconds=_to_real(v)), default=None
+    )
+    nirs_start: Optional[np.datetime64] = _from_query(
+        "nirsStartNanoTS", lambda v: np.datetime64(v, "ns"), default=None
+    )
+    nirs_end: Optional[np.datetime64] = _from_query(
+        "nirsEndNanoTS", lambda v: np.datetime64(v, "ns"), default=None
+    )
+    dcs_start: Optional[np.datetime64] = _from_query(
+        "dcsStartNanoTS", lambda v: np.datetime64(v, "ns"), default=None
+    )
+    dcs_end: Optional[np.datetime64] = _from_query(
+        "dcsEndNanoTS", lambda v: np.datetime64(v, "ns"), default=None
+    )
 
 
 @dataclass(frozen=True)
@@ -174,7 +204,12 @@ def query_meta(client: pymongo.MongoClient, query: dict, fields=None, find_kwarg
     )
 
 
-def query_meta_typed(client: pymongo.MongoClient, query={}, find_kwargs=None, meta_type: typing.Type[Meta] = Meta):
+def query_meta_typed(
+    client: pymongo.MongoClient,
+    query={},
+    find_kwargs=None,
+    meta_type: typing.Type[Meta] = Meta,
+):
     yield from map(
         meta_type.from_query,
         query_meta(
@@ -186,17 +221,50 @@ def query_meta_typed(client: pymongo.MongoClient, query={}, find_kwargs=None, me
     )
 
 
+def query_notes_meta(client: pymongo.MongoClient, query={}, find_kwargs=None):
+    yield from query_meta_typed(
+        client,
+        query={"the_type.val": "notes", **query},
+        find_kwargs=find_kwargs,
+        meta_type=NotesMeta,
+    )
+
+
 def query_fastrak_meta(client: pymongo.MongoClient, query={}, find_kwargs=None):
-    yield from query_meta_typed(client, query={"n_fastrak_dedup.val": {"$exists": True}, **query}, find_kwargs=find_kwargs, meta_type=FastrakMeta)
+    yield from query_meta_typed(
+        client,
+        query={"n_fastrak_dedup.val": {"$exists": True}, **query},
+        find_kwargs=find_kwargs,
+        meta_type=FastrakMeta,
+    )
 
 
 def query_nirs_meta(client: pymongo.MongoClient, query={}, find_kwargs=None):
-    yield from query_meta_typed(client, query={"n_nirs_dedup.val": {"$exists": True}, **query}, find_kwargs=find_kwargs, meta_type=NIRSMeta)
+    yield from query_meta_typed(
+        client,
+        query={"n_nirs_dedup.val": {"$exists": True}, **query},
+        find_kwargs=find_kwargs,
+        meta_type=NIRSMeta,
+    )
 
 
 def query_finapres_meta(client: pymongo.MongoClient, query={}, find_kwargs=None):
-    yield from query_meta_typed(client, query={"n_waveform_dedup.val": {"$exists": True}, **query}, find_kwargs=find_kwargs, meta_type=FinapresMeta)
+    yield from query_meta_typed(
+        client,
+        query={"n_waveform_dedup.val": {"$exists": True}, **query},
+        find_kwargs=find_kwargs,
+        meta_type=FinapresMeta,
+    )
 
 
 def query_patient_monitor_meta(client: pymongo.MongoClient, query={}, find_kwargs=None):
-    yield from query_meta_typed(client, query={"n_waves_dedup.val": {"$exists": True}, "n_numerics_dedup.val": {"$exists": True}, **query}, find_kwargs=find_kwargs, meta_type=PatientMonitorMeta)
+    yield from query_meta_typed(
+        client,
+        query={
+            "n_waves_dedup.val": {"$exists": True},
+            "n_numerics_dedup.val": {"$exists": True},
+            **query,
+        },
+        find_kwargs=find_kwargs,
+        meta_type=PatientMonitorMeta,
+    )

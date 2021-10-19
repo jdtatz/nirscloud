@@ -5,7 +5,11 @@ from .histos import (
     histogramed_positioning_legend,
     mokeypatch_matplotlib_constrained_layout,
 )
-from .visualization import FastrakVisualization, get_bokeh_theme, make_concise_datetime_formatter_default
+from .visualization import (
+    FastrakVisualization,
+    get_bokeh_theme,
+    make_concise_datetime_formatter_default,
+)
 from .nirscloud_mongo import (
     create_client,
     query_meta,

@@ -13,7 +13,9 @@ __all__ = [
 ]
 
 
-def load_fastrak_fiducial_ds(mongo_client, webhdfs_client, note_id: str, position_is_in_inches: bool = True) -> xr.Dataset:
+def load_fastrak_fiducial_ds(
+    mongo_client, webhdfs_client, note_id: str, position_is_in_inches: bool = True
+) -> xr.Dataset:
     fiducials = []
     measurement_id_prefixs = "ftmidnose", "ftleftear", "ftrightear"
     fiducial_locs = "nose", "left_ear", "right_ear"
@@ -25,11 +27,11 @@ def load_fastrak_fiducial_ds(mongo_client, webhdfs_client, note_id: str, positio
                 "measurement_id.val": {"$regex": f"{measurement_id_prefix}_\\d+"},
             },
         )
-        fastrak_ds = read_fastrak_ds_from_meta(webhdfs_client, fastrak_meta, position_is_in_inches=position_is_in_inches)
-        fiducial_ds = (
-            fastrak_ds
-            .squeeze("time")
-            .rename(time="fiducial_time", idx="fastrak_idx")
+        fastrak_ds = read_fastrak_ds_from_meta(
+            webhdfs_client, fastrak_meta, position_is_in_inches=position_is_in_inches
+        )
+        fiducial_ds = fastrak_ds.squeeze("time").rename(
+            time="fiducial_time", idx="fastrak_idx"
         )
         fiducial_ds.coords["fiducial"] = (), loc
         fiducials.append(
@@ -41,7 +43,11 @@ def load_fastrak_fiducial_ds(mongo_client, webhdfs_client, note_id: str, positio
 
 
 def load_fastrak_ds(
-    mongo_client, webhdfs_client, subject_id: str, the_date: str, position_is_in_inches: bool = True
+    mongo_client,
+    webhdfs_client,
+    subject_id: str,
+    the_date: str,
+    position_is_in_inches: bool = True,
 ) -> xr.Dataset:
     pencil_idx = 0
     head_idx = 1
@@ -55,7 +61,9 @@ def load_fastrak_ds(
             "measurement_id.val": {"$regex": f"{measurement_id_prefix}_\\d+"},
         },
     )
-    fastrak_ds = read_fastrak_ds_from_meta(webhdfs_client, fastrak_meta, position_is_in_inches=position_is_in_inches)
+    fastrak_ds = read_fastrak_ds_from_meta(
+        webhdfs_client, fastrak_meta, position_is_in_inches=position_is_in_inches
+    )
     fastrak_ds = xr.concat(
         [
             fastrak_ds.sel(idx=head_idx),
@@ -93,7 +101,10 @@ def load_fastrak_ds(
         dim="location",
     )
     fiducial_ds = load_fastrak_fiducial_ds(
-        mongo_client, webhdfs_client, fastrak_ds.coords["note_id"].item(), position_is_in_inches=position_is_in_inches
+        mongo_client,
+        webhdfs_client,
+        fastrak_ds.coords["note_id"].item(),
+        position_is_in_inches=position_is_in_inches,
     )
     return fastrak_ds.assign_coords(
         fiducial_position=fiducial_ds.position,

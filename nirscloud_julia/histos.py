@@ -126,12 +126,18 @@ def plot_histogramed_positioning(
             ),
             (
                 xr_vector_norm(position, dim="cartesian_axes"),
-                xr_vector_norm(fastrak_ds.coords["fiducial_position"],dim="cartesian_axes",),
+                xr_vector_norm(
+                    fastrak_ds.coords["fiducial_position"],
+                    dim="cartesian_axes",
+                ),
                 "distance (cm)",
             ),
         )
     )
-    fiducial_constants = ({v.fiducial.item(): (v, c) for v, c in zip(fv, ("r", "g", "b"))} for fv in fiducial_values)
+    fiducial_constants = (
+        {v.fiducial.item(): (v, c) for v, c in zip(fv, ("r", "g", "b"))}
+        for fv in fiducial_values
+    )
 
     for ax, v, fv, l in zip(axs, values, fiducial_constants, labels):
         ax_y_pdf = mpl_histo(ax, time, v, fv, smooth=smooth, hist_size=hist_size, tz=tz)

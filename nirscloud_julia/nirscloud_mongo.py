@@ -1,4 +1,5 @@
 import typing
+import numpy as np
 import pymongo
 from dataclasses import dataclass, field, fields, MISSING
 from pathlib import PurePath, PurePosixPath, PureWindowsPath
@@ -109,9 +110,11 @@ class NIRSMeta(Meta):
     dcs_wavelength: Real = _from_query("dcsWavelength", _to_real)
     dcs_hz: Real = _from_query("dcs_hz", _to_real)
     gains: "list[Real]" = _from_query("gains", list)
-    duration: Optional[datetime.timedelta] = _from_query(
-        "duration", lambda v: datetime.timedelta(seconds=_to_real(v)), default=None
-    )
+    duration: Optional[datetime.timedelta] = _from_query("duration", lambda v: datetime.timedelta(seconds=_to_real(v)), default=None)
+    nirs_start: Optional[np.datetime64] = _from_query("nirsStartNanoTS", lambda v: np.datetime64(v, 'ns'), default=None)
+    nirs_end: Optional[np.datetime64] = _from_query("nirsEndNanoTS", lambda v: np.datetime64(v, 'ns'), default=None)
+    dcs_start: Optional[np.datetime64] = _from_query("dcsStartNanoTS", lambda v: np.datetime64(v, 'ns'), default=None)
+    dcs_end: Optional[np.datetime64] = _from_query("dcsEndNanoTS", lambda v: np.datetime64(v, 'ns'), default=None)
 
 
 @dataclass(frozen=True)

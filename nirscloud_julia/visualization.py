@@ -12,7 +12,7 @@ import xarray as xr
 from matplotlib.gridspec import GridSpecFromSubplotSpec, SubplotSpec
 from scipy.spatial.transform import Rotation
 
-from dual_quaternion import DualQuaternion
+from nirscloud_julia.dual_quaternion import DualQuaternion
 from nirscloud_julia.mpl_marker import marker_with_text
 from nirscloud_julia.nirscloud_data import combine_measurements_ds
 

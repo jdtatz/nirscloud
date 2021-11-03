@@ -1,14 +1,27 @@
+import base64
+import uuid
 import typing
 import numpy as np
 import pymongo
 from dataclasses import dataclass, field, fields, MISSING
 from pathlib import PurePath, PurePosixPath, PureWindowsPath
-from typing import NewType, Any, Optional
+from typing import Any, Optional
 from collections.abc import Callable
 import datetime
 from numbers import Real
 
-MetaId = NewType("MetaId", str)
+
+
+class MetaID(uuid.UUID):
+    @classmethod
+    def from_stripped_base64(cls, s: str) -> "MetaID":
+        return cls(bytes=base64.urlsafe_b64decode(s + '=' * (4 - len(s) % 4)))
+    
+    def to_stripped_base64(self) -> str:
+        return base64.urlsafe_b64encode(self.bytes).rstrip(b"=").decode("utf8")
+    
+    def __str__(self) -> str:
+        return self.to_stripped_base64()
 
 
 def _id(v):
@@ -47,15 +60,15 @@ def _projection_index(v: dict, projection_key: str):
 class Meta:
     hdfs: PurePath = _from_query("hdfs_path", PurePosixPath)
     date: datetime.date = _from_query("the_date", datetime.date.fromisoformat)
-    meta: MetaId = _from_query("meta_id", MetaId)
-    measurement: MetaId = _from_query("measurement_id", MetaId)
-    subject: MetaId = _from_query("subject_id", MetaId)
+    meta: MetaID = _from_query("meta_id", MetaID.from_stripped_base64)
+    measurement: str = _from_query("measurement_id", str)
+    subject: str = _from_query("subject_id", str)
 
-    group: MetaId = _from_query("group_id", MetaId, default="")
-    note: MetaId = _from_query("note_id", MetaId, default="")
-    postfix: MetaId = _from_query("postfix_id", MetaId, default="")
-    session: MetaId = _from_query("session_id", MetaId, default="")
-    study: MetaId = _from_query("study_id", MetaId, default="")
+    group: Optional[str] = _from_query("group_id", str, default=None)
+    note: Optional[MetaID] = _from_query("note_id", MetaID.from_stripped_base64, default=None)
+    postfix: Optional[str] = _from_query("postfix_id", str, default=None)
+    session: Optional[str] = _from_query("session_id", str, default=None)
+    study: Optional[str] = _from_query("study_id", str, default=None)
     mongo: Any = _from_query("_id", default=None)
     file_prefix: Optional[PurePath] = _from_query(
         "file_prefix", PureWindowsPath, default=None

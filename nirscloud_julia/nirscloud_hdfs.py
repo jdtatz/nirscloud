@@ -186,8 +186,8 @@ def nirs_ds_from_raw_df(df: pd.DataFrame, meta: NIRSMeta):
             "duration": meta_dur
             if meta_dur is not None and not np.isnat(meta_dur)
             else dt_dur,
-            "wavelength": ("wavelength", meta.nirs_wavelengths, dict(units="nm")),
-            "rho": ("rho", meta.nirs_distances, dict(units="cm")),
+            "wavelength": ("wavelength", np.array(meta.nirs_wavelengths), dict(units="nm")),
+            "rho": ("rho", np.array(meta.nirs_distances), dict(units="cm")),
             "study": meta.study,
             "subject": meta.subject,
             "session": meta.session,

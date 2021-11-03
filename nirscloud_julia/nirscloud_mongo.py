@@ -120,12 +120,12 @@ class NotesMeta(Meta):
     is_pm: bool = _from_query("isPM", bool, default=False)
     is_with_hairline: bool = _from_query("isWithHairline", bool, default=False)
     is_with_probe: bool = _from_query("isWithProbe", bool, default=False)
-    measurement_sites: "list[str]" = _from_query(
-        "measurementSites", list, default_factory=list
+    measurement_sites: "tuple[str, ...]" = _from_query(
+        "measurementSites", tuple, default_factory=tuple
     )
     pm_info: "dict[str, Any]" = _from_query("pm", default_factory=dict)
-    locations_measured: "list[str]" = _from_query(
-        "locations_measured", list, default_factory=list
+    locations_measured: "tuple[str, ...]" = _from_query(
+        "locations_measured", tuple, default_factory=tuple
     )
 
 
@@ -136,13 +136,13 @@ class FastrakMeta(Meta):
 
 @dataclass(frozen=True)
 class NIRSMeta(Meta):
-    nirs_distances: "list[Real]" = _from_query("nirsDistances", list)
-    nirs_wavelengths: "list[Real]" = _from_query("nirsWavelengths", list)
+    nirs_distances: "tuple[Real, ...]" = _from_query("nirsDistances", tuple)
+    nirs_wavelengths: "tuple[Real, ...]" = _from_query("nirsWavelengths", tuple)
     nirs_hz: Real = _from_query("nirs_hz", _to_real)
-    dcs_distances: "list[Real]" = _from_query("dcsDistances", list)
+    dcs_distances: "tuple[Real, ...]" = _from_query("dcsDistances", tuple)
     dcs_wavelength: Real = _from_query("dcsWavelength", _to_real)
     dcs_hz: Real = _from_query("dcs_hz", _to_real)
-    gains: "list[Real]" = _from_query("gains", list)
+    gains: "tuple[Real, ...]" = _from_query("gains", tuple)
     duration: Optional[datetime.timedelta] = _from_query(
         "duration", lambda v: datetime.timedelta(seconds=_to_real(v)), default=None
     )

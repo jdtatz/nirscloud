@@ -57,29 +57,24 @@ PATIENT_MONITOR_COMPONENT_MAPPING = {
     0x480A: "Pulse",
 }
 
-HDFS_MASTERS = (
-    {"name": "ceph2", "host": "ceph2.babynirs.org"},
-    {"name": "babynirs2", "host": "babynirs2.babynirs.org"},
-    {"name": "hdfs1", "host": "hdfs1.babynirs.org"},
-)
+HDFS_MASTERS = "hdfs1.babynirs.org", "hdfs2.babynirs.org", "hdfs4.babynirs.org"
 HDFS_HTTPS_PORT = 9870
 HDFS_HTTP_PORT = 9871
-
+if "JUPYTERHUB_USER" in os.environ:
+    SPARK_KERBEROS_PRINCIPAL = f"{os.environ['JUPYTERHUB_USER']}@BABYNIRS.ORG"
 SPARK_KERBEROS_KEYTAB = "/home/jovyan/.spark/spark.keytab"
 
 
 def create_webhfs_client(
-    spark_kerberos_principal=None,
+    kerberos_principal=SPARK_KERBEROS_PRINCIPAL,
     credential_store=dict(keytab=SPARK_KERBEROS_KEYTAB),
+    hdfs_masters=HDFS_MASTERS,
     *,
     proxies={},
     headers={},
 ) -> Client:
-    if spark_kerberos_principal is None:
-        babynirs_username = os.environ["JUPYTERHUB_USER"]
-        spark_kerberos_principal = f"{babynirs_username}@BABYNIRS.ORG"
-    url = ";".join(f"https://{m['host']}:{HDFS_HTTPS_PORT}" for m in HDFS_MASTERS)
-    name = gssapi.Name(spark_kerberos_principal, gssapi.NameType.kerberos_principal)
+    url = ";".join(f"https://{url}:{HDFS_HTTPS_PORT}" for url in hdfs_masters)
+    name = gssapi.Name(kerberos_principal, gssapi.NameType.kerberos_principal)
     creds = gssapi.Credentials.acquire(name, store=credential_store).creds
     session = Session()
     session.auth = HTTPSPNEGOAuth(creds=creds)

@@ -1,6 +1,7 @@
 import base64
 import uuid
 import typing
+from functools import partial
 import numpy as np
 import pymongo
 from dataclasses import dataclass, field, fields, MISSING
@@ -171,7 +172,8 @@ class PatientMonitorMeta(Meta):
     pass
 
 
-def create_client(
+create_mongo_client = partial(
+    pymongo.MongoClient,
     host="mongos.mongo.svc.cluster.local",
     port=27017,
     ssl=True,
@@ -180,19 +182,8 @@ def create_client(
     # Changed in version 3.12: ssl_certfile and ssl_keyfile were deprecated in favor of tlsCertificateKeyFile.
     ssl_certfile="/etc/mongo/jhub-keypem.pem",
     ssl_ca_certs="/etc/mongo/root-ca.pem",
-    **extra_kwargs,
-) -> pymongo.MongoClient:
-    return pymongo.MongoClient(
-        host=host,
-        port=port,
-        ssl=ssl,
-        authSource=authSource,
-        authMechanism=authMechanism,
-        ssl_certfile=ssl_certfile,
-        ssl_ca_certs=ssl_ca_certs,
-        **extra_kwargs,
-    )
-
+)
+create_client = create_mongo_client
 
 META_DATABASE_KEY: str = "meta"
 META_COLLECTION_KEY: str = "meta3"

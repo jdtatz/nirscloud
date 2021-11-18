@@ -6,21 +6,20 @@ import numpy as np
 import pymongo
 from dataclasses import dataclass, field, fields, MISSING
 from pathlib import PurePath, PurePosixPath, PureWindowsPath
-from typing import Any, Optional
+from typing import Any, Optional, Union
 from collections.abc import Callable
 import datetime
 from numbers import Real
 
 
-
 class MetaID(uuid.UUID):
     @classmethod
     def from_stripped_base64(cls, s: str) -> "MetaID":
-        return cls(bytes=base64.urlsafe_b64decode(s + '=' * (4 - len(s) % 4)))
-    
+        return cls(bytes=base64.urlsafe_b64decode(s + "=" * (4 - len(s) % 4)))
+
     def to_stripped_base64(self) -> str:
         return base64.urlsafe_b64encode(self.bytes).rstrip(b"=").decode("utf8")
-    
+
     def __str__(self) -> str:
         return self.to_stripped_base64()
 
@@ -71,9 +70,7 @@ class Meta:
     session: Optional[str] = _from_query("session_id", str, default=None)
     study: Optional[str] = _from_query("study_id", str, default=None)
     mongo: Any = _from_query("_id", default=None)
-    file_prefix: Optional[PurePath] = _from_query(
-        "file_prefix", PureWindowsPath, default=None
-    )
+    file_prefix: Optional[PurePath] = _from_query("file_prefix", PureWindowsPath, default=None)
 
     @classmethod
     def query_converters(cls) -> "dict[str, tuple[str, Callable[[Any], Any]]]":
@@ -89,9 +86,7 @@ class Meta:
     def from_query(cls, query: "dict[str, Any]") -> "Meta":
         converters = cls.query_converters()
         qdefaults = dict(cls.query_defaults())
-        qfields = {
-            k: f(qv) for k, f, qv in ((*converters[qk], qv) for qk, qv in query.items())
-        }
+        qfields = {k: f(qv) for k, f, qv in ((*converters[qk], qv) for qk, qv in query.items())}
         return cls(**{**qdefaults, **qfields})
 
     @classmethod
@@ -112,22 +107,16 @@ class Meta:
 
 @dataclass(frozen=True)
 class NotesMeta(Meta):
-    duration: Optional[int] = _from_query(
-        "duration", lambda v: datetime.timedelta(seconds=_to_real(v)), default=None
-    )
+    duration: Optional[int] = _from_query("duration", lambda v: datetime.timedelta(seconds=_to_real(v)), default=None)
     is_fastrak: bool = _from_query("isFasTrak", bool, default=False)
     is_finapres: bool = _from_query("isFinapres", bool, default=False)
     is_metaox: bool = _from_query("isMetaOx", bool, default=False)
     is_pm: bool = _from_query("isPM", bool, default=False)
     is_with_hairline: bool = _from_query("isWithHairline", bool, default=False)
     is_with_probe: bool = _from_query("isWithProbe", bool, default=False)
-    measurement_sites: "tuple[str, ...]" = _from_query(
-        "measurementSites", tuple, default_factory=tuple
-    )
+    measurement_sites: "tuple[str, ...]" = _from_query("measurementSites", tuple, default_factory=tuple)
     pm_info: "dict[str, Any]" = _from_query("pm", default_factory=dict)
-    locations_measured: "tuple[str, ...]" = _from_query(
-        "locations_measured", tuple, default_factory=tuple
-    )
+    locations_measured: "tuple[str, ...]" = _from_query("locations_measured", tuple, default_factory=tuple)
 
 
 @dataclass(frozen=True)
@@ -147,18 +136,10 @@ class NIRSMeta(Meta):
     duration: Optional[datetime.timedelta] = _from_query(
         "duration", lambda v: datetime.timedelta(seconds=_to_real(v)), default=None
     )
-    nirs_start: Optional[np.datetime64] = _from_query(
-        "nirsStartNanoTS", lambda v: np.datetime64(v, "ns"), default=None
-    )
-    nirs_end: Optional[np.datetime64] = _from_query(
-        "nirsEndNanoTS", lambda v: np.datetime64(v, "ns"), default=None
-    )
-    dcs_start: Optional[np.datetime64] = _from_query(
-        "dcsStartNanoTS", lambda v: np.datetime64(v, "ns"), default=None
-    )
-    dcs_end: Optional[np.datetime64] = _from_query(
-        "dcsEndNanoTS", lambda v: np.datetime64(v, "ns"), default=None
-    )
+    nirs_start: Optional[np.datetime64] = _from_query("nirsStartNanoTS", lambda v: np.datetime64(v, "ns"), default=None)
+    nirs_end: Optional[np.datetime64] = _from_query("nirsEndNanoTS", lambda v: np.datetime64(v, "ns"), default=None)
+    dcs_start: Optional[np.datetime64] = _from_query("dcsStartNanoTS", lambda v: np.datetime64(v, "ns"), default=None)
+    dcs_end: Optional[np.datetime64] = _from_query("dcsEndNanoTS", lambda v: np.datetime64(v, "ns"), default=None)
 
 
 @dataclass(frozen=True)
@@ -194,18 +175,10 @@ def query_meta(client: pymongo.MongoClient, query: dict, fields=None, find_kwarg
     col: pymongo.Collection = db[META_COLLECTION_KEY]
     cursor: pymongo.Cursor = col.find(
         filter=query,
-        projection=[f if f in ("_id", "meta_id") else f"{f}.val" for f in fields]
-        if fields is not None
-        else None,
+        projection=[f if f in ("_id", "meta_id") else f"{f}.val" for f in fields] if fields is not None else None,
         **(find_kwargs or {}),
     )
-    yield from (
-        {
-            k: (v["val"] if isinstance(v, dict) and "val" in v else v)
-            for k, v in doc.items()
-        }
-        for doc in cursor
-    )
+    yield from ({k: (v["val"] if isinstance(v, dict) and "val" in v else v) for k, v in doc.items()} for doc in cursor)
 
 
 def query_meta_typed(

@@ -1,3 +1,4 @@
+"""Julia's nirscloud utils"""
 from .dual_quaternion import DualQuaternion
 from .mpl_marker import centered_text_as_path, marker_with_text
 from .histos import (
@@ -28,3 +29,5 @@ from .nirscloud_hdfs import (
     read_nirs_ds_from_meta,
 )
 from .nirscloud_data import load_fastrak_ds, load_nirs_ds, combine_measurements_ds
+
+__version__ = "0.1.17"

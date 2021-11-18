@@ -146,10 +146,7 @@ def interactive_bokeh_measurement_time_plot(
         p.y_range.bounds = "auto"
         return p
 
-    m_g_children = [
-        (k, [[line_plot(d) for d in col] for col in g_children])
-        for k, g_children in m_g_children
-    ]
+    m_g_children = [(k, [[line_plot(d) for d in col] for col in g_children]) for k, g_children in m_g_children]
 
     # fix
     for _, g_children in m_g_children:
@@ -163,9 +160,7 @@ def interactive_bokeh_measurement_time_plot(
     #         col[-1].xgrid.visible = False
     #         col[-1].ygrid.visible = False
 
-    m_children = [
-        (k, list(map(list, zip(*g_children)))) for k, g_children in m_g_children
-    ]
+    m_children = [(k, list(map(list, zip(*g_children)))) for k, g_children in m_g_children]
 
     grids = [
         (
@@ -228,14 +223,10 @@ class OrientationVisualization(art3d.Poly3DCollection):
     @property
     def polyhedron_faces(self) -> np.ndarray:
         if not hasattr(self, "_polyhedron_faces"):
-            faces = OrientationVisualization.tri_pts()[
-                OrientationVisualization._tri_indices
-            ]
+            faces = OrientationVisualization.tri_pts()[OrientationVisualization._tri_indices]
             z = np.array((0, 0, 1))
             rot_to_initial = minimal_rotation(z, self.initial_direction)
-            self._polyhedron_faces = np.apply_along_axis(
-                rot_to_initial.apply, -1, faces
-            )
+            self._polyhedron_faces = np.apply_along_axis(rot_to_initial.apply, -1, faces)
         return self._polyhedron_faces
 
     def orientated_faces(self, orientation: Rotation) -> np.ndarray:
@@ -260,9 +251,7 @@ class OrientationVisualization(art3d.Poly3DCollection):
         return
 
 
-def create_rotating_polyhedron(
-    ax: axes3d.Axes3D, initial_direction: np.ndarray = np.array((0, 0, 1))
-):
+def create_rotating_polyhedron(ax: axes3d.Axes3D, initial_direction: np.ndarray = np.array((0, 0, 1))):
     colors = "black", "black", "#e66101", "#fdb863", "#5e3c99", "#b2abd2"
     # colors = 'black', 'black', '#a6cee3', '#1f78b4', '#b2df8a', '#33a02c'
 
@@ -277,9 +266,7 @@ def create_rotating_polyhedron(
     ax.set_xlabel("X")
     ax.set_ylabel("Y")
     ax.set_zlabel("Z")
-    polyhedron = OrientationVisualization(
-        initial_direction=initial_direction, linewidths=1, alpha=1, animated=False
-    )
+    polyhedron = OrientationVisualization(initial_direction=initial_direction, linewidths=1, alpha=1, animated=False)
     polyhedron.set_facecolor(colors)
     polyhedron.set_edgecolor("k")
     ax.add_collection3d(polyhedron)
@@ -294,9 +281,7 @@ def create_rotating_polyhedron(
 
 def visualize_path(ax: axes3d.Axes3D, path: np.ndarray):
     segments = np.concatenate([path[:-1, None], path[1:, None]], axis=1)
-    lc = art3d.Line3DCollection(
-        segments, linewidths=3, capstyle="round", joinstyle="round"
-    )
+    lc = art3d.Line3DCollection(segments, linewidths=3, capstyle="round", joinstyle="round")
     lc.set_array(np.linspace(0, 1, len(path)))
     ax.add_collection3d(lc)
     ax.auto_scale_xyz(*path.T)
@@ -312,12 +297,10 @@ class FastrakVisualization:
 
     def interactive_3d_mean_plot(self, fig, cmap="Set2"):
         # fastrak_mean_measurements = self.measurements[["measurement_location", "position", "orientation"]].mean(dim="fastrak_time") # Idk why this doesn't work
-        fastrak_mean_measurements = self.measurements[
-            ["measurement_location", "position", "orientation"]
-        ].map(lambda v: v.mean(dim="fastrak_time") if "fastrak_time" in v.dims else v)
-        fastrak_mean_measurements_grouped = dict(
-            fastrak_mean_measurements.groupby("measurement_location")
+        fastrak_mean_measurements = self.measurements[["measurement_location", "position", "orientation"]].map(
+            lambda v: v.mean(dim="fastrak_time") if "fastrak_time" in v.dims else v
         )
+        fastrak_mean_measurements_grouped = dict(fastrak_mean_measurements.groupby("measurement_location"))
         cmap = mpl.cm.get_cmap(cmap, len(fastrak_mean_measurements_grouped))
 
         # Absolute
@@ -327,12 +310,8 @@ class FastrakVisualization:
             c = cmap(i)
             for j in range(len(trials.measurement)):
                 trial = trials.isel(measurement=j)
-                s_marker = marker_with_text(
-                    "s", trial.coords["measurement_trial"].item()
-                )
-                o_marker = marker_with_text(
-                    "o", trial.coords["measurement_trial"].item()
-                )
+                s_marker = marker_with_text("s", trial.coords["measurement_trial"].item())
+                o_marker = marker_with_text("o", trial.coords["measurement_trial"].item())
                 ax.scatter(
                     *trial.position.sel(location="head").T,
                     color=c,
@@ -352,12 +331,8 @@ class FastrakVisualization:
 
         for l in ("nose", "left_ear", "right_ear"):
             marker = marker_with_text("o", l[0].upper())
-            p = self.measurments.coords["fiducial_position"].sel(
-                fiducial=l, fastrak_idx=1
-            )
-            ax.scatter(
-                *p, color="white", depthshade=False, s=s, edgecolor="k", marker=marker
-            )
+            p = self.measurments.coords["fiducial_position"].sel(fiducial=l, fastrak_idx=1)
+            ax.scatter(*p, color="white", depthshade=False, s=s, edgecolor="k", marker=marker)
 
         # Relative
         ax = fig.add_subplot(1, 2, 2, projection="3d")
@@ -379,22 +354,12 @@ class FastrakVisualization:
 
         for l in ("nose", "left_ear", "right_ear"):
             marker = marker_with_text("o", l[0].upper())
-            h_p = self.measurments.coords["fiducial_position"].sel(
-                fiducial=l, fastrak_idx=1
-            )
-            h_o = self.measurments.coords["fiducial_orientation"].sel(
-                fiducial=l, fastrak_idx=1
-            )
-            h_dq = DualQuaternion.from_rigid_position(
-                h_p, quaternion.as_quat_array(h_o)
-            )
-            p = self.measurments.coords["fiducial_position"].sel(
-                fiducial=l, fastrak_idx=0
-            )
+            h_p = self.measurments.coords["fiducial_position"].sel(fiducial=l, fastrak_idx=1)
+            h_o = self.measurments.coords["fiducial_orientation"].sel(fiducial=l, fastrak_idx=1)
+            h_dq = DualQuaternion.from_rigid_position(h_p, quaternion.as_quat_array(h_o))
+            p = self.measurments.coords["fiducial_position"].sel(fiducial=l, fastrak_idx=0)
             p = h_dq.apply(p)
-            ax.scatter(
-                *p, color="white", depthshade=False, s=s, edgecolor="k", marker=marker
-            )
+            ax.scatter(*p, color="white", depthshade=False, s=s, edgecolor="k", marker=marker)
 
         # Colobar
         n = len(fastrak_mean_measurements_grouped)
@@ -495,22 +460,16 @@ class FastrakVisualization:
         fig.canvas.header_visible = False
         # fig.canvas.layout.min_height = '400px'
 
-        choice.observe(
-            lambda change: interactive_update_wrapper(change["new"]), "label"
-        )
+        choice.observe(lambda change: interactive_update_wrapper(change["new"]), "label")
         choice.value = next(iter(msrmnt_loc_dict.keys()))
         gui = widgets.VBox([choice, fig.canvas])
         return gui
 
-    def interactive_3d_time_plot(
-        self, measurement: str, *, figsize=auto_fig_size(1, 2)
-    ):
+    def interactive_3d_time_plot(self, measurement: str, *, figsize=auto_fig_size(1, 2)):
         example = self.nirs_ds.nirs_start_time.sel(measurement=measurement)
         t_slice = slice(example, example + example.duration)
         test = self.fastrak_ds.sel(time=t_slice, location="relative")
-        test_rots = Rotation.from_quat(
-            quaternion.as_float_array(test.orientation)[..., [1, 2, 3, 0]]
-        )
+        test_rots = Rotation.from_quat(quaternion.as_float_array(test.orientation)[..., [1, 2, 3, 0]])
 
         plt.ioff()
         fig = plt.figure(figsize=figsize)
@@ -526,9 +485,7 @@ class FastrakVisualization:
         draw(test_rots[0])
 
         sel_times = ((test.time - example) / np.timedelta64(1, "s")).values
-        sel = widgets.SelectionSlider(
-            options=[(f"{int(t*100)/100} s", t) for t in sel_times]
-        )
+        sel = widgets.SelectionSlider(options=[(f"{int(t*100)/100} s", t) for t in sel_times])
 
         def update(index):
             draw(test_rots[index])

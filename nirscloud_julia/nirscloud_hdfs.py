@@ -113,9 +113,7 @@ def fastrak_ds_from_raw_df(df: pd.DataFrame, meta: FastrakMeta):
     from scipy.spatial.transform import Rotation
 
     position = df[["x", "y", "z"]]
-    orientation = Rotation.from_euler(
-        "ZYX", df[["a", "e", "r"]].to_numpy(), degrees=True
-    ).as_quat()[..., [3, 0, 1, 2]]
+    orientation = Rotation.from_euler("ZYX", df[["a", "e", "r"]].to_numpy(), degrees=True).as_quat()[..., [3, 0, 1, 2]]
     ds = xr.Dataset(
         {
             "idx": ("time", df["idx"]),
@@ -157,9 +155,7 @@ def nirs_ds_from_raw_df(df: pd.DataFrame, meta: NIRSMeta):
     start = _to_datetime_scalar(df["_nano_ts"].min(), "ns")
     end = _to_datetime_scalar(df["_nano_ts"].max(), "ns")
     meta_dur = (
-        pd.to_timedelta(np.round(np.float64(meta.duration)), "s").to_numpy()
-        if meta.duration is not None
-        else None
+        pd.to_timedelta(np.round(np.float64(meta.duration)), "s").to_numpy() if meta.duration is not None else None
     )
     dt_dur = np.round((end - start) / np.timedelta64(1, "s")).astype("timedelta64[s]")
     return xr.Dataset(
@@ -178,10 +174,12 @@ def nirs_ds_from_raw_df(df: pd.DataFrame, meta: NIRSMeta):
             "time": ("time", df["_offset_nano_ts"].astype("timedelta64[ns]")),
             "nirs_start_time": start,
             "nirs_end_time": end,
-            "duration": meta_dur
-            if meta_dur is not None and not np.isnat(meta_dur)
-            else dt_dur,
-            "wavelength": ("wavelength", np.array(meta.nirs_wavelengths), dict(units="nm")),
+            "duration": meta_dur if meta_dur is not None and not np.isnat(meta_dur) else dt_dur,
+            "wavelength": (
+                "wavelength",
+                np.array(meta.nirs_wavelengths),
+                dict(units="nm"),
+            ),
             "rho": ("rho", np.array(meta.nirs_distances), dict(units="cm")),
             "study": meta.study,
             "subject": meta.subject,

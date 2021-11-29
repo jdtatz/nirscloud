@@ -62,6 +62,17 @@ HDFS_HTTPS_PORT = 9870
 HDFS_HTTP_PORT = 9871
 if "JUPYTERHUB_USER" in os.environ:
     SPARK_KERBEROS_PRINCIPAL = f"{os.environ['JUPYTERHUB_USER']}@BABYNIRS.ORG"
+elif "USER" in os.environ:
+    SPARK_KERBEROS_PRINCIPAL = f"{os.environ['USER']}@BABYNIRS.ORG"
+elif "USERNAME" in os.environ:
+    SPARK_KERBEROS_PRINCIPAL = f"{os.environ['USERNAME']}@BABYNIRS.ORG"
+else:
+    try:
+        import getpass
+        SPARK_KERBEROS_PRINCIPAL = f"{getpass.getuser()}@BABYNIRS.ORG"
+    except Exception:
+        # getpass.getuser doesn't specify which Exception type is raised on failure
+        SPARK_KERBEROS_PRINCIPAL = None
 SPARK_KERBEROS_KEYTAB = "/home/jovyan/.spark/spark.keytab"
 
 

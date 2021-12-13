@@ -70,6 +70,7 @@ elif "USERNAME" in os.environ:
 else:
     try:
         import getpass
+
         SPARK_KERBEROS_PRINCIPAL = f"{getpass.getuser()}@BABYNIRS.ORG"
     except Exception:
         # getpass.getuser doesn't specify which Exception type is raised on failure
@@ -145,6 +146,7 @@ def fastrak_ds_from_raw_df(df: pd.DataFrame, meta: FastrakMeta):
             "study": meta.study,
             "subject": meta.subject,
             "session": meta.session,
+            "device": meta.device,
             "measurement": meta.measurement,
             "date": _to_datetime_scalar(meta.date),
             "note_id": meta.note,
@@ -190,9 +192,11 @@ def nirs_ds_from_raw_df(df: pd.DataFrame, meta: NIRSMeta):
                 dict(units="nm"),
             ),
             "rho": ("rho", np.array(meta.nirs_distances), dict(units="cm")),
+            "gain": ("rho", np.array(meta.gains)),
             "study": meta.study,
             "subject": meta.subject,
             "session": meta.session,
+            "device": meta.device,
             "measurement": meta.measurement,
             "date": _to_datetime_scalar(meta.date),
             "note_id": meta.note,
@@ -213,6 +217,7 @@ def finapres_ds_from_raw_df(df: pd.DataFrame, meta: FinapresMeta):
             "study": meta.study,
             "subject": meta.subject,
             "session": meta.session,
+            "device": meta.device,
             "measurement": meta.measurement,
             "date": _to_datetime_scalar(meta.date),
             "note_id": meta.note,
@@ -232,6 +237,7 @@ def patient_monitor_ds_from_raw_df(df: pd.DataFrame, meta: PatientMonitorMeta):
                 "study": meta.study,
                 "subject": meta.subject,
                 "session": meta.session,
+                "device": meta.device,
                 "measurement": meta.measurement,
                 "date": _to_datetime_scalar(meta.date),
                 "note_id": meta.note,

@@ -69,6 +69,7 @@ class Meta:
     postfix: Optional[str] = _from_query("postfix_id", str, default=None)
     session: Optional[str] = _from_query("session_id", str, default=None)
     study: Optional[str] = _from_query("study_id", str, default=None)
+    device: Optional[str] = _from_query("device_id", str, default=None)
     mongo: Any = _from_query("_id", default=None)
     file_prefix: Optional[PurePath] = _from_query("file_prefix", PureWindowsPath, default=None)
 

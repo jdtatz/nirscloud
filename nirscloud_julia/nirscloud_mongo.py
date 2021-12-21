@@ -65,13 +65,20 @@ class Meta:
     subject: str = _from_query("subject_id", str)
 
     group: Optional[str] = _from_query("group_id", str, default=None)
-    note: Optional[MetaID] = _from_query("note_id", MetaID.from_stripped_base64, default=None)
+    note_meta: Optional[MetaID] = _from_query("note_id", MetaID.from_stripped_base64, default=None)
+    measurement_notes: Optional[str] = _from_query("note", str, default=None)
     postfix: Optional[str] = _from_query("postfix_id", str, default=None)
     session: Optional[str] = _from_query("session_id", str, default=None)
     study: Optional[str] = _from_query("study_id", str, default=None)
     device: Optional[str] = _from_query("device_id", str, default=None)
+    operators: "tuple[str, ...]" = _from_query("operators", tuple, default_factory=tuple)
     mongo: Any = _from_query("_id", default=None)
     file_prefix: Optional[PurePath] = _from_query("file_prefix", PureWindowsPath, default=None)
+
+    @property
+    def note(self) -> Optional[MetaID]:
+        """Deprecated: use `note_meta` instead"""
+        return self.note_meta
 
     @classmethod
     def query_converters(cls) -> "dict[str, tuple[str, Callable[[Any], Any]]]":
@@ -118,6 +125,8 @@ class NotesMeta(Meta):
     measurement_sites: "tuple[str, ...]" = _from_query("measurementSites", tuple, default_factory=tuple)
     pm_info: "dict[str, Any]" = _from_query("pm", default_factory=dict)
     locations_measured: "tuple[str, ...]" = _from_query("locations_measured", tuple, default_factory=tuple)
+    txt_filepath: Optional[PurePosixPath] = _from_query("txt_filename", PurePosixPath, default=None)
+    yaml_filepath: Optional[PurePosixPath] = _from_query("yaml_filename", PurePosixPath, default=None)
 
 
 @dataclass(frozen=True)
@@ -141,6 +150,8 @@ class NIRSMeta(Meta):
     nirs_end: Optional[np.datetime64] = _from_query("nirsEndNanoTS", lambda v: np.datetime64(v, "ns"), default=None)
     dcs_start: Optional[np.datetime64] = _from_query("dcsStartNanoTS", lambda v: np.datetime64(v, "ns"), default=None)
     dcs_end: Optional[np.datetime64] = _from_query("dcsEndNanoTS", lambda v: np.datetime64(v, "ns"), default=None)
+    nirsraw_filepath: Optional[PurePosixPath] = _from_query("nirsraw_filename", PurePosixPath, default=None)
+    dcsraw_filepath: Optional[PurePosixPath] = _from_query("dcsraw_filename", PurePosixPath, default=None)
 
 
 @dataclass(frozen=True)
@@ -220,7 +231,7 @@ def query_fastrak_meta(client: pymongo.MongoClient, query={}, find_kwargs=None):
 def query_nirs_meta(client: pymongo.MongoClient, query={}, find_kwargs=None):
     yield from query_meta_typed(
         client,
-        query={"n_nirs_dedup.val": {"$exists": True}, **query},
+        query={"n_nirs_dedup.val": {"$exists": True}, "isValid.val": {"$ne": False}, **query},
         find_kwargs=find_kwargs,
         meta_type=NIRSMeta,
     )

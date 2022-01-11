@@ -2,7 +2,6 @@ import datetime
 import typing
 from itertools import product
 
-import ipywidgets as widgets
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import art3d, axes3d
@@ -427,6 +426,8 @@ class FastrakVisualization:
         rho_idxs=(0, -1),
         figsize=(16, 8),
     ):
+        import ipywidgets as widgets
+
         msrmnt_loc_dict = dict(self.measurements.groupby("measurement_location"))
 
         def interactive_update_wrapper(key):
@@ -466,6 +467,8 @@ class FastrakVisualization:
         return gui
 
     def interactive_3d_time_plot(self, measurement: str, *, figsize=auto_fig_size(1, 2)):
+        import ipywidgets as widgets
+
         example = self.nirs_ds.nirs_start_time.sel(measurement=measurement)
         t_slice = slice(example, example + example.duration)
         test = self.fastrak_ds.sel(time=t_slice, location="relative")

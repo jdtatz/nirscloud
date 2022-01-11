@@ -286,7 +286,7 @@ if has_tfp:
         initial_state = random_sample
 
         # Speed up sampling by tracing with `tf.function`.
-        @tf.function(autograph=False, jit_compile=True)
+        @tf.function(autograph=True, jit_compile=True)
         def do_sampling():
             return tfp.mcmc.sample_chain(
                 kernel=transformed_adaptive_nuts,

@@ -1,3 +1,4 @@
+from typing import Optional
 import numpy as np
 from numpy.polynomial import Polynomial
 import scipy
@@ -256,11 +257,29 @@ if has_tfp:
         n_results: int = 1_000,
         n_burnin_steps: int = 1_000,
         proportion_adaption_steps: float = 0.8,
+        n_prior_samples: Optional[int] = None,
     ) -> az.InferenceData:
         # TODO replace later
         from tensorflow_probability.python.internal import unnest
 
+        inference_data_dict = {}
+
         target_model = tfp_gaussian_process_model(da, dim=dim, float_dtype=float_dtype)
+
+        if n_prior_samples is not None and n_prior_samples > 0:
+            model_unpinned_keys = tuple(target_model.event_shape._asdict().keys())
+            model_pinned_keys = tuple(target_model.pins.keys())
+            prior_sample = target_model.distribution.sample(n_prior_samples)
+            prior_samples = {k: getattr(prior_sample, k) for k in model_unpinned_keys}
+            prior_predictive = {k: getattr(prior_sample, k) for k in model_pinned_keys}
+            inference_data_dict.update(
+                observed_data={"observations": da.values},
+                prior={k: v[tf.newaxis, ...] for k, v in prior_samples.items()},
+                prior_predictive={k: v[tf.newaxis, ...] for k, v in prior_predictive.items()},
+                coords={dim: da.coords[dim].values},
+                dims={"observations": list(da.dims)},
+            )
+
         bij = target_model.experimental_default_event_space_bijector()
         # pulled_back_shape = bij.inverse_event_shape(target_model.event_shape)
 
@@ -306,11 +325,11 @@ if has_tfp:
             for tfp_k, az_k in tfp_2_az_mapping.items()
         }
         posterior = {k: np.swapaxes(v.numpy(), 1, 0) for k, v in mcmc_samples._asdict().items()}
-        inference_data = az.from_dict(
+        inference_data_dict.update(
             sample_stats=sample_stats,
             posterior=posterior,
         )
-        return inference_data
+        return az.from_dict(**inference_data_dict)
 
 
 # FP012 on 12/8/21 , MetaID("RvS54nMYT8G8lYE1nwLz0A")

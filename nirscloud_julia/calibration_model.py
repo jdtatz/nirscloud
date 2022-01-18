@@ -335,42 +335,35 @@ if has_tfp:
 # FP012 on 12/8/21 , MetaID("RvS54nMYT8G8lYE1nwLz0A")
 # B099 on 3/12/21 , MetaID("kv8EQwYWQ96vCW6KCfKM6Q")
 def calibrate(
-    calib_measurement_ds: xr.Dataset, outlier_threshold=2.25, trend_fn=rolling_trend, **trend_fn_kwargs
+    calib_measurement_ds: xr.Dataset, detrend_mean_var_fn=rolling_detrend_mean_var, **detrend_fn_kwargs
 ) -> xr.Dataset:
     calib_ds = calib_measurement_ds
     cphase_ds = phase_stats(calib_ds.phase)
 
     dc_no_dark = calib_ds.dc - calib_ds.dark.mean(dim="time")
-    dc_detrend = dc_no_dark - (trend_fn(dc_no_dark, **trend_fn_kwargs) - dc_no_dark.mean(dim="time"))
-    dc_detrend_subset = dc_detrend.where(non_outlier_mask(dc_detrend, threshold=outlier_threshold))
+    dc_detrend_mean, dc_detrend_var = detrend_mean_var_fn(dc_no_dark, **detrend_fn_kwargs)
 
     # AC already has no dark
     ac_no_dark = calib_ds.ac
-    ac_detrend = ac_no_dark - (trend_fn(ac_no_dark, **trend_fn_kwargs) - ac_no_dark.mean(dim="time"))
-    ac_detrend_subset = ac_detrend.where(non_outlier_mask(ac_detrend, threshold=outlier_threshold))
+    ac_detrend_mean, ac_detrend_var = detrend_mean_var_fn(ac_no_dark, **detrend_fn_kwargs)
 
     def _gen():
         for i, r in enumerate(calib_ds.rho.values):
-            dc_da_r = dc_detrend_subset.isel(rho=i)
-            ac_da_r = ac_detrend_subset.isel(rho=i)
-            cp_ds_r = cphase_ds.isel(rho=i)
-            if dc_da_r.gain.shape == ():
-                g_das = ((dc_da_r.gain, (dc_da_r, ac_da_r, cp_ds_r)),)
+            dc_means = dc_detrend_mean.isel(rho=i)
+            dc_vars = dc_detrend_var.isel(rho=i)
+            ac_means = ac_detrend_mean.isel(rho=i)
+            ac_vars = ac_detrend_var.isel(rho=i)
+            cp_vars = cphase_ds.isel(rho=i).variance
+            if dc_means.gain.shape == ():
+                g_das = ((dc_means.gain, (dc_means, dc_vars, ac_means, ac_vars, cp_vars)),)
             else:
-                dc_d = {g: ds.assign_coords(gain=g) for g, ds in dc_da_r.groupby("gain")}
-                ac_d = {g: ds.assign_coords(gain=g) for g, ds in ac_da_r.groupby("gain")}
-                cp_d = {g: ds.assign_coords(gain=g) for g, ds in cp_ds_r.groupby("gain")}
-                assert set(dc_d.keys()) == set(ac_d.keys())
-                assert set(dc_d.keys()) == set(cp_d.keys())
-                assert len(dc_d) == len(ac_d)
-                assert len(dc_d) == len(cp_d)
-                g_das = ((g, (dc_d[g], ac_d[g], cp_d[g])) for g in dc_d.keys())
-            for g, (dc_da, ac_da, cp_ds) in g_das:
-                dc_mean = dc_da.mean(dim="time")
-                dc_var = dc_da.var(dim="time")
-                ac_mean = ac_da.mean(dim="time")
-                ac_var = ac_da.var(dim="time")
-                cp_var = cp_ds.variance
+                dc_g_m = {g: ds.assign_coords(gain=g) for g, ds in dc_means.groupby("gain")}
+                dc_g_v = {g: ds.assign_coords(gain=g) for g, ds in dc_vars.groupby("gain")}
+                ac_g_m = {g: ds.assign_coords(gain=g) for g, ds in ac_means.groupby("gain")}
+                ac_g_v = {g: ds.assign_coords(gain=g) for g, ds in ac_vars.groupby("gain")}
+                cp_g_v = {g: ds.assign_coords(gain=g) for g, ds in cp_vars.groupby("gain")}
+                g_das = ((g, (dc_g_m[g], dc_g_v[g], ac_g_m[g], ac_g_v[g], cp_g_v[g])) for g in dc_g_m.keys())
+            for g, (dc_mean, dc_var, ac_mean, ac_var, cp_var) in g_das:
                 dc_vptc_ds = xr_polynomial_fit(dc_mean, dc_var, "measurement", "wavelength", degree=1)
                 ac_vptc_ds = xr_polynomial_fit(ac_mean, ac_var, "measurement", "wavelength", degree=1)
                 ac_calib_const = ac_vptc_ds.coef.sel(degree=1).values

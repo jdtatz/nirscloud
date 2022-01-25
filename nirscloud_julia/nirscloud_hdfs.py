@@ -175,7 +175,7 @@ def nirs_ds_from_raw_df(df: pd.DataFrame, meta: NIRSMeta):
             "phase": (
                 ("time", "wavelength", "rho"),
                 _fix_nested_array(df["phase"]),
-                dict(units="deg"),
+                dict(units="radian" if meta.is_radian else "deg"),
             ),
             "dc": (("time", "wavelength", "rho"), _fix_nested_array(df["dc"])),
             "dark": (("time", "rho"), _fix_nested_array(df["dark"])),

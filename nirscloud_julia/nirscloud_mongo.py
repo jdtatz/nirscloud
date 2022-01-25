@@ -143,6 +143,7 @@ class NIRSMeta(Meta):
     dcs_wavelength: Real = _from_query("dcsWavelength", _to_real)
     dcs_hz: Real = _from_query("dcs_hz", _to_real)
     gains: "tuple[Real, ...]" = _from_query("gains", tuple)
+    is_radian: bool = _from_query("is_nirs_radian_single", bool, default=False)
     duration: Optional[datetime.timedelta] = _from_query(
         "duration", lambda v: datetime.timedelta(seconds=_to_real(v)), default=None
     )

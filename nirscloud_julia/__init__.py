@@ -30,4 +30,4 @@ from .nirscloud_hdfs import (
 )
 from .nirscloud_data import load_fastrak_ds, load_nirs_ds, combine_measurements_ds
 
-__version__ = "0.1.25"
+__version__ = "0.1.26"

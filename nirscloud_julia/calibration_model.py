@@ -347,38 +347,41 @@ def calibrate(
     ac_no_dark = calib_ds.ac
     ac_detrend_mean, ac_detrend_var = detrend_mean_var_fn(ac_no_dark, **detrend_fn_kwargs)
 
-    def _gen():
-        for i, r in enumerate(calib_ds.rho.values):
-            dc_means = dc_detrend_mean.isel(rho=i)
-            dc_vars = dc_detrend_var.isel(rho=i)
-            ac_means = ac_detrend_mean.isel(rho=i)
-            ac_vars = ac_detrend_var.isel(rho=i)
-            cp_vars = cphase_ds.isel(rho=i).variance
-            if dc_means.gain.shape == ():
-                g_das = ((dc_means.gain, (dc_means, dc_vars, ac_means, ac_vars, cp_vars)),)
-            else:
-                dc_g_m = {g: ds.assign_coords(gain=g) for g, ds in dc_means.groupby("gain")}
-                dc_g_v = {g: ds.assign_coords(gain=g) for g, ds in dc_vars.groupby("gain")}
-                ac_g_m = {g: ds.assign_coords(gain=g) for g, ds in ac_means.groupby("gain")}
-                ac_g_v = {g: ds.assign_coords(gain=g) for g, ds in ac_vars.groupby("gain")}
-                cp_g_v = {g: ds.assign_coords(gain=g) for g, ds in cp_vars.groupby("gain")}
-                g_das = ((g, (dc_g_m[g], dc_g_v[g], ac_g_m[g], ac_g_v[g], cp_g_v[g])) for g in dc_g_m.keys())
-            for g, (dc_mean, dc_var, ac_mean, ac_var, cp_var) in g_das:
-                dc_vptc_ds = xr_polynomial_fit(dc_mean, dc_var, "measurement", "wavelength", degree=1)
-                ac_vptc_ds = xr_polynomial_fit(ac_mean, ac_var, "measurement", "wavelength", degree=1)
-                ac_calib_const = ac_vptc_ds.coef.sel(degree=1).values
-                ac_ph_fits = xr_polynomial_fit(
-                    np.log(ac_mean / ac_calib_const), np.log(cp_var), "measurement", "wavelength", degree=1
-                )
-                fit_ds = xr.concat(
-                    [dc_vptc_ds, ac_vptc_ds, ac_ph_fits],
-                    pd.Index(["dc_vptc_ds", "ac_vptc_ds", "cal_ac_ph"], name="fit_type"),
-                )
-                fit_ds["dc_mean"] = dc_mean
-                fit_ds["dc_var"] = dc_var
-                fit_ds["ac_mean"] = ac_mean
-                fit_ds["ac_var"] = ac_var
-                fit_ds["cp_var"] = cp_var
-                yield (r.item(), g.item()), fit_ds
+    calib_stats_ds = xr.Dataset(
+        dict(
+            dc_mean=dc_detrend_mean.assign_attrs(long_name="Detrended DC mean"),
+            dc_var=dc_detrend_var.assign_attrs(long_name="Detrended DC variance"),
+            ac_mean=ac_detrend_mean.assign_attrs(long_name="Detrended AC mean"),
+            ac_var=ac_detrend_var.assign_attrs(long_name="Detrended AC variance"),
+            phase_mean=cphase_ds["mean"],
+            phase_var=cphase_ds["variance"],
+        )
+    )
 
-    return dict(_gen())
+    def calibrate_and_apply_acdc(ds):
+        # dc_cal_ds = xr_polynomial_fit(ds.dc_mean, ds.dc_var, "measurement", "wavelength", degree=1)
+        dc_cal_ds = xr_polynomial_fit(ds.dc_mean, ds.dc_var, *ds.dims, degree=1)
+        dc_cal = dc_cal_ds.coef.sel(degree=1)
+        ac_cal_ds = xr_polynomial_fit(ds.ac_mean, ds.ac_var, *ds.dims, degree=1)
+        ac_cal = ac_cal_ds.coef.sel(degree=1)
+
+        phase_cal_ds = xr_polynomial_fit(np.log(ds.ac_mean / ac_cal.values), np.log(ds.phase_var), *ds.dims, degree=1)
+        phase_cal = phase_cal_ds.coef.sel(degree=1)
+
+        return ds.assign(
+            dc_cal=dc_cal,
+            dc_cal_poly=dc_cal_ds.poly,
+            dc_cal_r2=dc_cal_ds.r2,
+            ac_cal=ac_cal,
+            ac_cal_poly=ac_cal_ds.poly,
+            ac_cal_r2=ac_cal_ds.r2,
+            phase_cal=phase_cal,
+            phase_cal_poly=phase_cal_ds.poly,
+            phase_cal_r2=phase_cal_ds.r2,
+            dc_cal_mean=(ds.dc_mean / dc_cal).assign_attrs(long_name="Calibrated DC mean"),
+            dc_cal_var=(ds.dc_var / dc_cal ** 2).assign_attrs(long_name="Calibrated DC variance"),
+            ac_cal_mean=(ds.ac_mean / ac_cal).assign_attrs(long_name="Calibrated AC mean"),
+            ac_cal_var=(ds.ac_var / ac_cal ** 2).assign_attrs(long_name="Calibrated AC variance"),
+        )
+
+    return calib_stats_ds.groupby("rho").map(lambda ds: ds.groupby("gain").map(calibrate_and_apply_acdc))

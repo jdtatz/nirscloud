@@ -361,12 +361,12 @@ def calibrate(
     def calibrate_and_apply_acdc(ds):
         # dc_cal_ds = xr_polynomial_fit(ds.dc_mean, ds.dc_var, "measurement", "wavelength", degree=1)
         dc_cal_ds = xr_polynomial_fit(ds.dc_mean, ds.dc_var, *ds.dims, degree=1)
-        dc_cal = dc_cal_ds.coef.sel(degree=1)
+        dc_cal = dc_cal_ds.coef.sel(degree=1).drop_vars("degree")
         ac_cal_ds = xr_polynomial_fit(ds.ac_mean, ds.ac_var, *ds.dims, degree=1)
-        ac_cal = ac_cal_ds.coef.sel(degree=1)
+        ac_cal = ac_cal_ds.coef.sel(degree=1).drop_vars("degree")
 
         phase_cal_ds = xr_polynomial_fit(np.log(ds.ac_mean / ac_cal.values), np.log(ds.phase_var), *ds.dims, degree=1)
-        phase_cal = phase_cal_ds.coef.sel(degree=1)
+        phase_cal = phase_cal_ds.coef.sel(degree=1).drop_vars("degree")
 
         return ds.assign(
             dc_cal=dc_cal,
@@ -383,5 +383,8 @@ def calibrate(
             ac_cal_mean=(ds.ac_mean / ac_cal).assign_attrs(long_name="Calibrated AC mean"),
             ac_cal_var=(ds.ac_var / ac_cal ** 2).assign_attrs(long_name="Calibrated AC variance"),
         )
+    
+    def scalar_safe_groupby_map(ds, group, f):
+        return f(ds) if ds[group].shape == () else ds.groupby(group).map(f)
 
-    return calib_stats_ds.groupby("rho").map(lambda ds: ds.groupby("gain").map(calibrate_and_apply_acdc))
+    return calib_stats_ds.groupby("rho").map(lambda ds: scalar_safe_groupby_map(ds, "gain", calibrate_and_apply_acdc))

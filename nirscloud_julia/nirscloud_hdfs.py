@@ -96,11 +96,18 @@ def create_webhfs_client(
     return Client(url, session=session)
 
 
-def read_data_from_meta(client: Client, meta: Meta, hdfs_prefix: PurePath):
+def read_data_from_meta(client: Client, meta: Meta, *hdfs_prefix_options: PurePath):
     def read_data(path: PurePath):
         with client.read(path) as reader:
             return pd.read_parquet(BytesIO(reader.read()))
-
+    # Only here to silence mypy worrying about it being Unbound
+    hdfs_prefix = hdfs_prefix_options[0]
+    for hdfs_prefix in hdfs_prefix_options:
+        if client.status(hdfs_prefix / meta.hdfs, strict=False) is not None:
+            break
+    else:
+        # Do this to raise an exception indictating the file doesn't exsist in any of the prefixes
+        client.status(hdfs_prefix / meta.hdfs, strict=True)
     full_path = hdfs_prefix / meta.hdfs
     if client.status(full_path)["type"] == "FILE":
         return read_data(full_path)

@@ -19,6 +19,8 @@ from .nirscloud_mongo import (
     Meta,
     FastrakMeta,
     NIRSMeta,
+    FinapresMeta,
+    PatientMonitorMeta,
     META_DATABASE_KEY,
     META_COLLECTION_KEY,
 )

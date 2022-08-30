@@ -19,6 +19,7 @@ dependencies = [
     "requests~=2.26",
     "hdfs~=2.6",
     "requests-gssapi~=1.2",
+    "httpx_gssapi~=0.1.7",
     "pyarrow>=4",
 ]
 

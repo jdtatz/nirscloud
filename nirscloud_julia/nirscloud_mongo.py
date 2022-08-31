@@ -4,6 +4,9 @@ import typing
 from functools import partial
 import numpy as np
 import pymongo
+import pymongo.database
+import pymongo.collection
+import pymongo.cursor
 from dataclasses import dataclass, field, fields, MISSING
 from pathlib import PurePath, PurePosixPath, PureWindowsPath
 from typing import Any, Optional
@@ -140,7 +143,7 @@ class NIRSMeta(Meta):
     gains: "tuple[Real, ...]" = _from_query("gains", tuple)
     is_radian: bool = _from_query("is_nirs_radian_single", bool, default=False)
     duration: Optional[datetime.timedelta] = _from_query(
-        "duration", lambda v: datetime.timedelta(seconds=_to_real(v)), default=None
+        "duration", lambda v: datetime.timedelta(seconds=float(v)), default=None
     )
     nirs_start: Optional[np.datetime64] = _from_query("nirsStartNanoTS", lambda v: np.datetime64(v, "ns"), default=None)
     nirs_end: Optional[np.datetime64] = _from_query("nirsEndNanoTS", lambda v: np.datetime64(v, "ns"), default=None)
@@ -178,9 +181,9 @@ META_COLLECTION_KEY: str = "meta3"
 
 
 def query_meta(client: pymongo.MongoClient, query: dict, fields=None, find_kwargs=None):
-    db: pymongo.Database = client[META_DATABASE_KEY]
-    col: pymongo.Collection = db[META_COLLECTION_KEY]
-    cursor: pymongo.Cursor = col.find(
+    db: pymongo.database.Database = client[META_DATABASE_KEY]
+    col: pymongo.collection.Collection = db[META_COLLECTION_KEY]
+    cursor: pymongo.cursor.Cursor = col.find(
         filter=query,
         projection=[f if f in ("_id", "meta_id") else f"{f}.val" for f in fields] if fields is not None else None,
         **(find_kwargs or {}),

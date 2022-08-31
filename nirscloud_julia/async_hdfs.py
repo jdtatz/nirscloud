@@ -102,8 +102,8 @@ def create_async_webhdfs_client(
     return AsyncWebHDFS(session=session, host=hdfs_masters[0], port=HDFS_HTTPS_PORT)
 
 
-async def async_read_data_from_meta(client: AsyncWebHDFS, meta: Meta, *hdfs_prefix_options: PurePath) -> pa.Table:
-    async def read_data(path: PurePath):
+async def async_read_data_from_meta(client: AsyncWebHDFS, meta: Meta, *hdfs_prefix_options: PurePosixPath) -> pa.Table:
+    async def read_data(path: PurePosixPath):
         return pq.read_table(BytesIO(await client.open(path)))
 
     # Only here to silence mypy worrying about it being Unbound
@@ -119,7 +119,12 @@ async def async_read_data_from_meta(client: AsyncWebHDFS, meta: Meta, *hdfs_pref
         return await read_data(full_path)
     tree = await client.walk(full_path)
     tables = await asyncio.gather(
-        *(read_data(PurePath(path) / file) for path, _, files in tree for file in files if file.endswith(".parquet"))
+        *(
+            read_data(PurePosixPath(path) / file)
+            for path, _, files in tree
+            for file in files
+            if file.endswith(".parquet")
+        )
     )
     return pa.concat_tables(tables)
 
@@ -139,7 +144,7 @@ def add_meta_coords(ds: xr.Dataset, meta: Meta):
         "device": meta.device,
         "measurement": meta.measurement,
         "date": _to_datetime_scalar(meta.date),
-        "note_id": meta.note,
+        "note_id": meta.note_meta,
         "meta_id": meta.meta,
         # "group": meta.group,
     }
@@ -244,13 +249,11 @@ def finapres_ds_from_table(table: pa.Table):
 def patient_monitor_da_dict_from_table(table: pa.Table):
     return dict(
         xr.DataArray(
-            _from_chunked_array(
-                table["val"],
-                dims="time",
-                coords=dict(
-                    time=("time", _from_chunked_array(table["_nano_ts"]).astype("datetime64[ns]")),
-                    id=("time", _from_chunked_array(table["id"])),
-                ),
-            )
+            _from_chunked_array(table["val"]),
+            dims="time",
+            coords=dict(
+                time=("time", _from_chunked_array(table["_nano_ts"]).astype("datetime64[ns]")),
+                id=("time", _from_chunked_array(table["id"])),
+            ),
         ).groupby("id")
     )

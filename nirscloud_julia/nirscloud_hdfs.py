@@ -172,7 +172,7 @@ def fastrak_ds_from_raw_df(df: pd.DataFrame, meta: FastrakMeta):
             "device": meta.device,
             "measurement": meta.measurement,
             "date": _to_datetime_scalar(meta.date),
-            "note_id": meta.note,
+            "note_id": meta.note_meta,
             "meta_id": meta.meta,
         },
     )
@@ -222,7 +222,7 @@ def nirs_ds_from_raw_df(df: pd.DataFrame, meta: NIRSMeta):
             "device": meta.device,
             "measurement": meta.measurement,
             "date": _to_datetime_scalar(meta.date),
-            "note_id": meta.note,
+            "note_id": meta.note_meta,
             "meta_id": meta.meta,
         },
     )
@@ -243,7 +243,7 @@ def finapres_ds_from_raw_df(df: pd.DataFrame, meta: FinapresMeta):
             "device": meta.device,
             "measurement": meta.measurement,
             "date": _to_datetime_scalar(meta.date),
-            "note_id": meta.note,
+            "note_id": meta.note_meta,
             "meta_id": meta.meta,
         },
     )
@@ -263,7 +263,7 @@ def patient_monitor_ds_from_raw_df(df: pd.DataFrame, meta: PatientMonitorMeta):
                 "device": meta.device,
                 "measurement": meta.measurement,
                 "date": _to_datetime_scalar(meta.date),
-                "note_id": meta.note,
+                "note_id": meta.note_meta,
                 "meta_id": meta.meta,
             },
         ).sortby("time")

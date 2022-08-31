@@ -6,7 +6,7 @@ import numpy as np
 import pymongo
 from dataclasses import dataclass, field, fields, MISSING
 from pathlib import PurePath, PurePosixPath, PureWindowsPath
-from typing import Any, Optional, Union
+from typing import Any, Optional
 from collections.abc import Callable
 import datetime
 from numbers import Real
@@ -75,11 +75,6 @@ class Meta:
     mongo: Any = _from_query("_id", default=None)
     file_prefix: Optional[PurePath] = _from_query("file_prefix", PureWindowsPath, default=None)
 
-    @property
-    def note(self) -> Optional[MetaID]:
-        """Deprecated: use `note_meta` instead"""
-        return self.note_meta
-
     @classmethod
     def query_converters(cls) -> "dict[str, tuple[str, Callable[[Any], Any]]]":
         return {
@@ -113,20 +108,20 @@ class Meta:
         return [k if k in ("_id", "meta_id") else f"{k}.val" for k in cls.query_keys()]
 
 
-@dataclass(frozen=True)
-class NotesMeta(Meta):
-    duration: Optional[int] = _from_query("duration", lambda v: datetime.timedelta(seconds=_to_real(v)), default=None)
-    is_fastrak: bool = _from_query("isFasTrak", bool, default=False)
-    is_finapres: bool = _from_query("isFinapres", bool, default=False)
-    is_metaox: bool = _from_query("isMetaOx", bool, default=False)
-    is_pm: bool = _from_query("isPM", bool, default=False)
-    is_with_hairline: bool = _from_query("isWithHairline", bool, default=False)
-    is_with_probe: bool = _from_query("isWithProbe", bool, default=False)
-    measurement_sites: "tuple[str, ...]" = _from_query("measurementSites", tuple, default_factory=tuple)
-    pm_info: "dict[str, Any]" = _from_query("pm", default_factory=dict)
-    locations_measured: "tuple[str, ...]" = _from_query("locations_measured", tuple, default_factory=tuple)
-    txt_filepath: Optional[PurePosixPath] = _from_query("txt_filename", PurePosixPath, default=None)
-    yaml_filepath: Optional[PurePosixPath] = _from_query("yaml_filename", PurePosixPath, default=None)
+# @dataclass(frozen=True)
+# class NotesMeta(Meta):
+#     duration: Optional[int] = _from_query("duration", lambda v: datetime.timedelta(seconds=_to_real(v)), default=None)
+#     is_fastrak: bool = _from_query("isFasTrak", bool, default=False)
+#     is_finapres: bool = _from_query("isFinapres", bool, default=False)
+#     is_metaox: bool = _from_query("isMetaOx", bool, default=False)
+#     is_pm: bool = _from_query("isPM", bool, default=False)
+#     is_with_hairline: bool = _from_query("isWithHairline", bool, default=False)
+#     is_with_probe: bool = _from_query("isWithProbe", bool, default=False)
+#     measurement_sites: "tuple[str, ...]" = _from_query("measurementSites", tuple, default_factory=tuple)
+#     pm_info: "dict[str, Any]" = _from_query("pm", default_factory=dict)
+#     locations_measured: "tuple[str, ...]" = _from_query("locations_measured", tuple, default_factory=tuple)
+#     txt_filepath: Optional[PurePosixPath] = _from_query("txt_filename", PurePosixPath, default=None)
+#     yaml_filepath: Optional[PurePosixPath] = _from_query("yaml_filename", PurePosixPath, default=None)
 
 
 @dataclass(frozen=True)
@@ -177,7 +172,6 @@ create_mongo_client = partial(
     ssl_certfile="/etc/mongo/jhub-keypem.pem",
     ssl_ca_certs="/etc/mongo/root-ca.pem",
 )
-create_client = create_mongo_client
 
 META_DATABASE_KEY: str = "meta"
 META_COLLECTION_KEY: str = "meta3"
@@ -211,13 +205,13 @@ def query_meta_typed(
     )
 
 
-def query_notes_meta(client: pymongo.MongoClient, query={}, find_kwargs=None):
-    yield from query_meta_typed(
-        client,
-        query={"the_type.val": "notes", **query},
-        find_kwargs=find_kwargs,
-        meta_type=NotesMeta,
-    )
+# def query_notes_meta(client: pymongo.MongoClient, query={}, find_kwargs=None):
+#     yield from query_meta_typed(
+#         client,
+#         query={"the_type.val": "notes", **query},
+#         find_kwargs=find_kwargs,
+#         meta_type=NotesMeta,
+#     )
 
 
 def query_fastrak_meta(client: pymongo.MongoClient, query={}, find_kwargs=None):

@@ -26,17 +26,32 @@ KAFKA_TOPICS_FP_3 = "finapres_waveform_su"
 KAFKA_TOPICS_PM = "ixtrend_waves5_s"
 KAFKA_TOPICS_PM_N = "ixtrend_numerics2_s"
 
+FASTRAK_KAFKA_TOPICS = KAFKA_TOPICS_FT_CM, KAFKA_TOPICS_FT
+NIRS_KAFKA_TOPICS = (KAFKA_TOPICS_N,)
+FINAPRES_KAFKA_TOPICS = KAFKA_TOPICS_FP_3, KAFKA_TOPICS_FP_2, KAFKA_TOPICS_FP
+PM_KAFKA_TOPICS = "ixtrend_waves5_s", "ixtrend_waves4_s", "ixtrend_waves3_s", "ixtrend_waves2_s", "ixtrend_waves"
+PM_N_KAFKA_TOPICS = "ixtrend_numerics2_s", "ixtrend_numerics_s", "ixtrend_numerics"
+
 HDFS_NAMESERVICE = "BabyNIRSHDFS"
-HDFS_PREFIX = PurePath("/nirscloud/dedup")
+HDFS_PREFIX_DEDUP = PurePath("/nirscloud/dedup")
 HDFS_PREFIX_AGG = PurePath("/nirscloud/agg")
+HDFS_PREFIX = HDFS_PREFIX_AGG
+
 HDFS_PREFIX_FT = HDFS_PREFIX_AGG / KAFKA_TOPICS_FT
 HDFS_PREFIX_FT_CM = HDFS_PREFIX_AGG / KAFKA_TOPICS_FT_CM
-HDFS_PREFIX_N = HDFS_PREFIX / KAFKA_TOPICS_N
-HDFS_PREFIX_FP = HDFS_PREFIX / KAFKA_TOPICS_FP
+HDFS_PREFIX_N = HDFS_PREFIX_DEDUP / KAFKA_TOPICS_N
+HDFS_PREFIX_FP = HDFS_PREFIX_DEDUP / KAFKA_TOPICS_FP
 HDFS_PREFIX_FP_2 = HDFS_PREFIX_AGG / KAFKA_TOPICS_FP_2
 HDFS_PREFIX_FP_3 = HDFS_PREFIX_AGG / KAFKA_TOPICS_FP_3
 HDFS_PREFIX_PM = HDFS_PREFIX_AGG / KAFKA_TOPICS_PM
 HDFS_PREFIX_PM_N = HDFS_PREFIX_AGG / KAFKA_TOPICS_PM_N
+
+HDFS_FASTRAK_PREFIXES = HDFS_PREFIX_FT_CM, HDFS_PREFIX_FT
+HDFS_NIRS_PREFIXES = (HDFS_PREFIX_N,)
+HDFS_FINAPRES_PREFIXES = HDFS_PREFIX_FP_3, HDFS_PREFIX_FP_2, HDFS_PREFIX_FP
+HDFS_PM_PREFIXES = (HDFS_PREFIX_PM, *(HDFS_PREFIX_DEDUP / t for t in PM_KAFKA_TOPICS))
+HDFS_PM_N_PREFIXES = (HDFS_PREFIX_PM_N, *(HDFS_PREFIX_DEDUP / t for t in PM_N_KAFKA_TOPICS))
+
 
 PATIENT_MONITOR_COMPONENT_MAPPING = {
     0x013D: "III",
@@ -100,6 +115,7 @@ def read_data_from_meta(client: Client, meta: Meta, *hdfs_prefix_options: PurePa
     def read_data(path: PurePath):
         with client.read(path) as reader:
             return pd.read_parquet(BytesIO(reader.read()))
+
     # Only here to silence mypy worrying about it being Unbound
     hdfs_prefix = hdfs_prefix_options[0]
     for hdfs_prefix in hdfs_prefix_options:

@@ -11,7 +11,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import xarray as xr
 
-from .nirscloud_mongo import FastrakMeta, Meta, NIRSMeta
+from .nirscloud_mongo import Meta, NIRSMeta, FastrakMeta, FinapresMeta, PatientMonitorMeta
 
 
 class AsyncWebHDFS:
@@ -46,7 +46,7 @@ class AsyncWebHDFS:
         return response_json["FileStatuses"]["FileStatus"]
 
     async def open(self, fpath: PurePosixPath):
-        response = await self._session.get(f"{self._base_url}{fpath}", params={"op": "OPEN"}, follow_redirects=True)
+        response = await self._session.get(f"{self._base_url}{fpath}", params=dict(op="OPEN"), follow_redirects=True)
         response.raise_for_status()
         return response.content
 
@@ -82,12 +82,12 @@ else:
 SPARK_KERBEROS_KEYTAB = "/home/jovyan/.spark/spark.keytab"
 
 
-def create_webhfs_client(
+def create_async_webhdfs_client(
     kerberos_principal=SPARK_KERBEROS_PRINCIPAL,
     credential_store=dict(keytab=SPARK_KERBEROS_KEYTAB),
     hdfs_masters=HDFS_MASTERS,
     *,
-    proxies={},
+    # proxies={},
     headers={},
 ) -> AsyncWebHDFS:
     import gssapi
@@ -97,7 +97,7 @@ def create_webhfs_client(
     creds = gssapi.Credentials.acquire(name, store=credential_store).creds
     session = httpx.AsyncClient()
     session.auth = HTTPSPNEGOAuth(creds=creds)
-    session.proxies.update(proxies)
+    # session.proxies.update(proxies)
     session.headers.update(headers)
     return AsyncWebHDFS(session=session, host=hdfs_masters[0], port=HDFS_HTTPS_PORT)
 
@@ -174,8 +174,18 @@ def add_meta_coords(ds: xr.Dataset, meta: Meta):
     return ds.assign_coords(coords)
 
 
+def _scalar_dtype(pa_type: pa.DataType):
+    if hasattr(pa_type, "value_type"):
+        return _scalar_dtype(pa_type.value_type)
+    return pa_type.to_pandas_dtype()
+
+
 def _from_chunked_array(carray: pa.ChunkedArray) -> np.ndarray:
-    return np.array(carray.to_pylist()) if pa.types.is_nested(carray.type) else carray.to_numpy()
+    return (
+        np.array(carray.to_pylist(), dtype=_scalar_dtype(carray.type))
+        if pa.types.is_nested(carray.type)
+        else carray.to_numpy()
+    )
 
 
 def nirs_ds_from_table(table: pa.Table):

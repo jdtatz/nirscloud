@@ -1,19 +1,16 @@
 [build-system]
-requires = ["flit_core >=3.2,<4"]
-build-backend = "flit_core.buildapi"
+requires = ["setuptools>=64", "setuptools_scm[toml]>=7.0"]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "nirscloud_julia"
 authors = [{name = "Julia Tatz", email = "julia.tatz@childrens.harvard.edu"}]
 requires-python = ">=3.7.1"
-dynamic = ["version", "description"]
+dynamic = ["version"]
 dependencies = [
     "numpy~=1.21",
-    "scipy~=1.6",
-    "numpy-quaternion>=2021.7",
     "xarray>=0.19",
     "pymongo>=3.0",
-    "matplotlib~=3.4",
     "pandas~=1.2",
     "zarr>=2.8",
     "requests~=2.26",
@@ -27,3 +24,6 @@ dependencies = [
 line-length = 120
 target-version = ['py37']
 include = '\.pyi?$'
+
+[tool.setuptools_scm]
+write_to = "nirscloud_julia/_version.py"

@@ -40,5 +40,3 @@ from .async_hdfs import (
     finapres_ds_from_table,
     patient_monitor_da_dict_from_table,
 )
-
-__version__ = "0.2.0"

@@ -61,6 +61,7 @@ def _projection_index(v: dict, projection_key: str):
 
 @dataclass(frozen=True)
 class Meta:
+    _extra: "dict[str, Any]"
     hdfs: PurePath = _from_query("hdfs_path", PurePosixPath)
     date: datetime.date = _from_query("the_date", datetime.date.fromisoformat)
     meta: MetaID = _from_query("meta_id", MetaID.from_stripped_base64)
@@ -92,8 +93,16 @@ class Meta:
     def from_query(cls, query: "dict[str, Any]") -> "Meta":
         converters = cls.query_converters()
         qdefaults = dict(cls.query_defaults())
-        qfields = {k: f(qv) for k, f, qv in ((*converters[qk], qv) for qk, qv in query.items())}
-        return cls(**{**qdefaults, **qfields})
+        qfields = dict()
+        extra = dict()
+        for qk, qv in query.items():
+            converter = converters.get(qk, None)
+            if converter is None:
+                extra[qk] = qv
+            else:
+                k, f = converter
+                qfields[k] = f(qv)
+        return cls(**{"_extra": extra, **qdefaults, **qfields})
 
     @classmethod
     def query_keys(cls):
@@ -135,12 +144,12 @@ class FastrakMeta(Meta):
 @dataclass(frozen=True)
 class NIRSMeta(Meta):
     nirs_distances: "tuple[Real, ...]" = _from_query("nirsDistances", tuple)
-    nirs_wavelengths: "tuple[Real, ...]" = _from_query("nirsWavelengths", tuple)
+    nirs_wavelengths: "Optional[tuple[Real, ...]]" = _from_query("nirsWavelengths", tuple, default=None)
     nirs_hz: Real = _from_query("nirs_hz", _to_real)
     dcs_distances: "tuple[Real, ...]" = _from_query("dcsDistances", tuple)
-    dcs_wavelength: Real = _from_query("dcsWavelength", _to_real)
-    dcs_hz: Real = _from_query("dcs_hz", _to_real)
-    gains: "tuple[Real, ...]" = _from_query("gains", tuple)
+    dcs_wavelength: "Optional[Real]" = _from_query("dcsWavelength", _to_real, default=None)
+    dcs_hz: "Optional[Real]" = _from_query("dcs_hz", _to_real, default=None)
+    gains: "Optional[tuple[Real, ...]]" = _from_query("gains", tuple, default=None)
     is_radian: bool = _from_query("is_nirs_radian_single", bool, default=False)
     duration: Optional[datetime.timedelta] = _from_query(
         "duration", lambda v: datetime.timedelta(seconds=float(v)), default=None

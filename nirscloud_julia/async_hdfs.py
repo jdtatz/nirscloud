@@ -165,6 +165,7 @@ def add_meta_coords(ds: xr.Dataset, meta: Meta):
             coords["wavelength"] = "wavelength", np.array(meta.nirs_wavelengths), dict(units="nm")
         if meta.gains is not None:
             coords["gain"] = "rho", np.array(meta.gains)
+        ds["time"] = ds["time"] - ds["time"][0]
         ds = ds.assign(phase=ds["phase"].assign_attrs(units="radian" if meta.is_radian else "deg"))
     elif isinstance(meta, FastrakMeta):
         position = ds["position"].assign_attrs(units="cm")

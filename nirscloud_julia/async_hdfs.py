@@ -1,17 +1,22 @@
-import os
 import asyncio
-from itertools import chain
-from pathlib import PurePath, PurePosixPath
+import os
 from io import BytesIO
+from itertools import chain
+from pathlib import PurePosixPath
 
 import httpx
-
 import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 import xarray as xr
 
-from .nirscloud_mongo import Meta, NIRSMeta, FastrakMeta, FinapresMeta, PatientMonitorMeta
+from .nirscloud_mongo import (
+    FastrakMeta,
+    FinapresMeta,
+    Meta,
+    NIRSMeta,
+    PatientMonitorMeta,
+)
 
 
 class AsyncWebHDFS:
@@ -89,25 +94,24 @@ def create_async_webhdfs_client(
     *,
     # proxies={},
     headers={},
+    limits=httpx.Limits(),
 ) -> AsyncWebHDFS:
     import gssapi
     from httpx_gssapi import HTTPSPNEGOAuth
 
     name = gssapi.Name(kerberos_principal, gssapi.NameType.kerberos_principal)
     creds = gssapi.Credentials.acquire(name, store=credential_store).creds
-    session = httpx.AsyncClient()
+    session = httpx.AsyncClient(http2=True, limits=limits)
     session.auth = HTTPSPNEGOAuth(creds=creds)
     # session.proxies.update(proxies)
     session.headers.update(headers)
     return AsyncWebHDFS(session=session, host=hdfs_masters[0], port=HDFS_HTTPS_PORT)
 
 
-async def async_read_data_from_meta(client: AsyncWebHDFS, meta: Meta, *hdfs_prefix_options: PurePosixPath) -> pa.Table:
-    async def read_data(path: PurePosixPath):
+async def async_read_table_from_meta(client: AsyncWebHDFS, meta: Meta, *hdfs_prefix_options: PurePosixPath) -> pa.Table:
+    async def read_data(path: PurePosixPath) -> pa.Table:
         return pq.read_table(BytesIO(await client.open(path)))
 
-    # Only here to silence mypy worrying about it being Unbound
-    hdfs_prefix = hdfs_prefix_options[0]
     for hdfs_prefix in hdfs_prefix_options:
         status = await client.status(hdfs_prefix / meta.hdfs)
         if status is not None:
@@ -155,14 +159,12 @@ def add_meta_coords(ds: xr.Dataset, meta: Meta):
             nirs_start_time=start,
             nirs_end_time=end,
             duration=meta.duration if meta.duration is not None else dt_dur,
-            wavelength=(
-                "wavelength",
-                np.array(meta.nirs_wavelengths),
-                dict(units="nm"),
-            ),
             rho=("rho", np.array(meta.nirs_distances), dict(units="cm")),
-            gain=("rho", np.array(meta.gains)),
         )
+        if meta.nirs_wavelengths is not None:
+            coords["wavelength"] = "wavelength", np.array(meta.nirs_wavelengths), dict(units="nm")
+        if meta.gains is not None:
+            coords["gain"] = "rho", np.array(meta.gains)
         ds = ds.assign(phase=ds["phase"].assign_attrs(units="radian" if meta.is_radian else "deg"))
     elif isinstance(meta, FastrakMeta):
         position = ds["position"].assign_attrs(units="cm")
@@ -203,7 +205,7 @@ def nirs_ds_from_table(table: pa.Table):
             aux=(("time", "rho"), _from_chunked_array(table["aux"])),
         ),
         coords=dict(time=("time", _from_chunked_array(table["_nano_ts"]).astype("datetime64[ns]"))),
-    )
+    ).transpose(..., "time")
 
 
 def fastrak_ds_from_table(table: pa.Table):
@@ -213,14 +215,14 @@ def fastrak_ds_from_table(table: pa.Table):
     euler_axes = "a", "e", "r"
     quaternion_axes = "w", "x", "y", "z"
 
-    position = np.stack([_from_chunked_array(table[c]) for c in cartesian_axes], axis=-1)
-    angles = np.stack([_from_chunked_array(table[c]) for c in euler_axes], axis=-1)
-    orientation = Rotation.from_euler("ZYX", angles, degrees=True).as_quat()[..., [3, 0, 1, 2]]
+    position = np.stack([_from_chunked_array(table[c]) for c in cartesian_axes], axis=0)
+    angles = np.stack([_from_chunked_array(table[c]) for c in euler_axes], axis=1)
+    orientation = np.roll(Rotation.from_euler("ZYX", angles, degrees=True).as_quat().transpose(), 1, axis=0)
     ds = xr.Dataset(
         data_vars=dict(
             idx=("time", _from_chunked_array(table["idx"])),
-            position=(("time", "cartesian_axes"), position),
-            orientation=(("time", "quaternion_axes"), orientation),
+            position=(("cartesian_axes", "time"), position),
+            orientation=(("quaternion_axes", "time"), orientation),
         ),
         coords=dict(
             time=("time", _from_chunked_array(table["_nano_ts"]).astype("datetime64[ns]")),

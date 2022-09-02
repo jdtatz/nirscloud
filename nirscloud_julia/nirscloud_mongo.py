@@ -1,18 +1,19 @@
 import base64
-import uuid
+import datetime
 import typing
+import uuid
+from collections.abc import Callable
+from dataclasses import MISSING, dataclass, field, fields
 from functools import partial
-import numpy as np
-import pymongo
-import pymongo.database
-import pymongo.collection
-import pymongo.cursor
-from dataclasses import dataclass, field, fields, MISSING
+from numbers import Real
 from pathlib import PurePath, PurePosixPath, PureWindowsPath
 from typing import Any, Optional
-from collections.abc import Callable
-import datetime
-from numbers import Real
+
+import numpy as np
+import pymongo
+import pymongo.collection
+import pymongo.cursor
+import pymongo.database
 
 
 class MetaID(uuid.UUID):

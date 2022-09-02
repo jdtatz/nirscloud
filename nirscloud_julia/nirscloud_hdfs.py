@@ -1,21 +1,24 @@
 import os
-from pathlib import PurePath
-import numpy as np
+from io import BytesIO
+from pathlib import PurePosixPath
+
 import gssapi
-from requests_gssapi import HTTPSPNEGOAuth
+import numpy as np
+import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
+import xarray as xr
 from hdfs import Client
 from requests import Session
-from io import BytesIO
-import pandas as pd
-import xarray as xr
+from requests_gssapi import HTTPSPNEGOAuth
+
 from .nirscloud_mongo import (
+    FastrakMeta,
     FinapresMeta,
     Meta,
-    FastrakMeta,
     NIRSMeta,
     PatientMonitorMeta,
 )
-
 
 KAFKA_TOPICS_FT = "fastrak2_s"
 KAFKA_TOPICS_FT_CM = "fastrak_cm_s"
@@ -33,8 +36,8 @@ PM_KAFKA_TOPICS = "ixtrend_waves5_s", "ixtrend_waves4_s", "ixtrend_waves3_s", "i
 PM_N_KAFKA_TOPICS = "ixtrend_numerics2_s", "ixtrend_numerics_s", "ixtrend_numerics"
 
 HDFS_NAMESERVICE = "BabyNIRSHDFS"
-HDFS_PREFIX_DEDUP = PurePath("/nirscloud/dedup")
-HDFS_PREFIX_AGG = PurePath("/nirscloud/agg")
+HDFS_PREFIX_DEDUP = PurePosixPath("/nirscloud/dedup")
+HDFS_PREFIX_AGG = PurePosixPath("/nirscloud/agg")
 HDFS_PREFIX = HDFS_PREFIX_AGG
 
 HDFS_PREFIX_FT = HDFS_PREFIX_AGG / KAFKA_TOPICS_FT
@@ -111,24 +114,44 @@ def create_webhfs_client(
     return Client(url, session=session)
 
 
-def read_data_from_meta(client: Client, meta: Meta, *hdfs_prefix_options: PurePath):
-    def read_data(path: PurePath):
+def read_table_from_meta(client: Client, meta: Meta, *hdfs_prefix_options: PurePosixPath) -> pa.Table:
+    def read_table(path: PurePosixPath) -> pa.Table:
+        with client.read(path) as reader:
+            return pq.read_table(BytesIO(reader.read()))
+
+    for hdfs_prefix in hdfs_prefix_options:
+        status = client.status(hdfs_prefix / meta.hdfs)
+        if status is not None:
+            break
+    else:
+        raise FileNotFoundError
+    full_path = hdfs_prefix / meta.hdfs
+    if status["type"] == "FILE":
+        return read_table(full_path)
+    tables = (
+        read_table(PurePosixPath(path) / file)
+        for path, _, files in client.walk(full_path)
+        for file in files
+        if file.endswith(".parquet")
+    )
+    return pa.concat_tables(tables)
+
+
+def read_data_from_meta(client: Client, meta: Meta, *hdfs_prefix_options: PurePosixPath):
+    def read_data(path: PurePosixPath):
         with client.read(path) as reader:
             return pd.read_parquet(BytesIO(reader.read()))
 
-    # Only here to silence mypy worrying about it being Unbound
-    hdfs_prefix = hdfs_prefix_options[0]
     for hdfs_prefix in hdfs_prefix_options:
         if client.status(hdfs_prefix / meta.hdfs, strict=False) is not None:
             break
     else:
-        # Do this to raise an exception indictating the file doesn't exsist in any of the prefixes
-        client.status(hdfs_prefix / meta.hdfs, strict=True)
+        raise FileNotFoundError
     full_path = hdfs_prefix / meta.hdfs
     if client.status(full_path)["type"] == "FILE":
         return read_data(full_path)
     dfs = (
-        read_data(PurePath(path) / file)
+        read_data(PurePosixPath(path) / file)
         for path, _, files in client.walk(full_path)
         for file in files
         if file.endswith(".parquet")

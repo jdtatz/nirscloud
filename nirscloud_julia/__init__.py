@@ -23,6 +23,7 @@ from .nirscloud_hdfs import (
     read_fastrak_ds_from_meta,
     read_nirs_ds_from_meta,
     read_table_from_meta,
+    patient_monitor_ds_from_raw_df,
 )
 from .nirscloud_mongo import (
     META_COLLECTION_KEY,

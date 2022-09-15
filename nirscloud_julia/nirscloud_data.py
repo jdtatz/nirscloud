@@ -119,7 +119,7 @@ def nirs_ds_from_table(table: pa.Table):
             aux=(("time", "rho"), _from_chunked_array(table["aux"])),
         ),
         coords=dict(time=("time", _from_chunked_array(table["_nano_ts"]).astype("datetime64[ns]"))),
-    ).transpose(..., "time")
+    ).transpose(..., "time").sortby("time")
 
 
 def fastrak_ds_from_table(table: pa.Table):
@@ -132,26 +132,19 @@ def fastrak_ds_from_table(table: pa.Table):
     position = np.stack([_from_chunked_array(table[c]) for c in cartesian_axes], axis=0)
     angles = np.stack([_from_chunked_array(table[c]) for c in euler_axes], axis=1)
     orientation = np.roll(Rotation.from_euler("ZYX", angles, degrees=True).as_quat().transpose(), 1, axis=0)
-    stacked = pd.MultiIndex.from_arrays(
-        [_from_chunked_array(table["_nano_ts"]).astype("datetime64[ns]"), _from_chunked_array(table["idx"])],
-        names=["time", "idx"],
-    )
     ds = xr.Dataset(
         data_vars=dict(
-            # idx=("time", _from_chunked_array(table["idx"])),
             position=(("cartesian_axes", "stacked"), position),
             orientation=(("quaternion_axes", "stacked"), orientation),
         ),
         coords=dict(
-            stacked=stacked,
-            # time=("time", _from_chunked_array(table["_nano_ts"]).astype("datetime64[ns]")),
+            idx=("stacked", _from_chunked_array(table["idx"])),
+            time=("stacked", _from_chunked_array(table["_nano_ts"]).astype("datetime64[ns]")),
             cartesian_axes=("cartesian_axes", list(cartesian_axes)),
             quaternion_axes=("quaternion_axes", list(quaternion_axes)),
         ),
     )
-    # ks, vs = zip(*ds.groupby("idx"))
-    # ds = xr.concat([v.drop_vars("idx") for v in vs], xr.DataArray(list(ks), dims="idx"))
-    ds = ds.unstack("stacked").transpose("idx", ..., "time")
+    ds = ds.set_index(stacked=["time", "idx"]).unstack("stacked").transpose("idx", ..., "time")
     return ds.sortby("time")
 
 
@@ -165,7 +158,7 @@ def finapres_ds_from_table(table: pa.Table):
         coords=dict(
             time=("time", _from_chunked_array(table["_nano_ts"]).astype("datetime64[ns]")),
         ),
-    )
+    ).sortby("time")
 
 
 def patient_monitor_da_dict_from_table(table: pa.Table):

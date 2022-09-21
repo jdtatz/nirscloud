@@ -1,4 +1,5 @@
 from pathlib import PosixPath
+from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -53,13 +54,43 @@ def _to_datetime_scalar(v, unit="D"):
         return np.datetime64(v, unit)
 
 
+# polyfill for <3.9
+if hasattr(str, "removeprefix"):
+    str_removeprefix = str.removeprefix
+else:
+    def _removeprefix(self: str, prefix: str) -> str:
+        if self.startswith(prefix):
+            return self[len(prefix):]
+        else:
+            return self[:]
+    str_removeprefix = _removeprefix
+
+
+def _maybe_rsplit_once(s: str, sep: Optional[str]):
+    head, *tail = s.rsplit(sep, 1)
+    if len(tail) == 0:
+        return head, None
+    elif len(tail) == 1:
+        tail, = tail
+        return head, tail
+    raise RuntimeError(f"builtin `str.rsplit(sep, maxsplit=1)` broke invariants. Should've only returned 2 values at most, but returned {1 + len(tail)} values")
+
+
 def add_meta_coords(ds: xr.Dataset, meta: Meta):
+    loc, trial = _maybe_rsplit_once(meta.measurement, "_")
+    trial = None if trial is None else int(trial)
+    session = int(str_removeprefix(meta.session, "S"))
+
     coords = {
         "study": meta.study,
+        # TODO: split into (`group`, `subject_id`) once ensured all instances of this field follow this pattern
         "subject": meta.subject,
-        "session": meta.session,
+        "session": session,
         "device": meta.device,
+        # FIXME: deprecate later (`location`, `trial`) == `measurement`
         "measurement": meta.measurement,
+        "location": loc,
+        "trial": trial,
         "date": _to_datetime_scalar(meta.date),
         "note_id": meta.note_meta,
         "meta_id": meta.meta,

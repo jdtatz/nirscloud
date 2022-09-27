@@ -120,7 +120,7 @@ def read_table_from_meta(client: Client, meta: Meta, *hdfs_prefix_options: PureP
             return pq.read_table(BytesIO(reader.read()))
 
     for hdfs_prefix in hdfs_prefix_options:
-        status = client.status(hdfs_prefix / meta.hdfs)
+        status = client.status(hdfs_prefix / meta.hdfs, strict=False)
         if status is not None:
             break
     else:

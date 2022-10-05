@@ -1,9 +1,4 @@
 """Julia's nirscloud utils"""
-from .async_hdfs import (
-    AsyncWebHDFS,
-    async_read_table_from_meta,
-    create_async_webhdfs_client,
-)
 from .nirscloud_data import (
     add_meta_coords,
     fastrak_ds_from_table,
@@ -20,11 +15,11 @@ from .nirscloud_hdfs import (
     HDFS_PM_N_PREFIXES,
     HDFS_PM_PREFIXES,
     PATIENT_MONITOR_COMPONENT_MAPPING,
+    async_read_table_from_meta,
+    create_async_webhdfs_client,
+    create_webhdfs_client,
     create_webhfs_client,
-    patient_monitor_ds_from_raw_df,
-    read_data_from_meta,
-    read_fastrak_ds_from_meta,
-    read_nirs_ds_from_meta,
+    nirscloud_webhdfs_auth,
     read_table_from_meta,
 )
 from .nirscloud_mongo import (
@@ -44,3 +39,4 @@ from .nirscloud_mongo import (
     query_nirs_meta,
     query_patient_monitor_meta,
 )
+from .webhdfs import HDFSRemoteException, WebHDFS, async_walk, sync_walk

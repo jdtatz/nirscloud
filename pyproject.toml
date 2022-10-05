@@ -8,15 +8,13 @@ authors = [{name = "Julia Tatz", email = "julia.tatz@childrens.harvard.edu"}]
 requires-python = ">=3.7.1"
 dynamic = ["version"]
 dependencies = [
+    "typing_extensions>=4.3.0",
     "numpy~=1.21",
     "xarray>=0.19",
     "pymongo>=3.0",
     "pandas~=1.2",
     "zarr>=2.8",
-    "requests~=2.26",
-    "hdfs~=2.6",
     "httpx[http2]",
-    "requests-gssapi~=1.2",
     "httpx_gssapi~=0.1.7",
     "pyarrow>=4",
 ]
@@ -34,3 +32,10 @@ python_version = "3.9"
 
 [tool.setuptools_scm]
 write_to = "nirscloud_julia/_version.py"
+
+[tool.pdm.dev-dependencies]
+dev = [
+    "black>=22.8.0",
+    "mypy>=0.982",
+    "isort>=5.10.1",
+]

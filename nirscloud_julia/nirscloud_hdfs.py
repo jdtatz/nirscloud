@@ -1,24 +1,16 @@
+import asyncio
 import os
 from io import BytesIO
 from pathlib import PurePosixPath
 
 import gssapi
-import numpy as np
-import pandas as pd
+import httpx
 import pyarrow as pa
 import pyarrow.parquet as pq
-import xarray as xr
-from hdfs import Client
-from requests import Session
-from requests_gssapi import HTTPSPNEGOAuth
+from httpx_gssapi import HTTPSPNEGOAuth
 
-from .nirscloud_mongo import (
-    FastrakMeta,
-    FinapresMeta,
-    Meta,
-    NIRSMeta,
-    PatientMonitorMeta,
-)
+from .nirscloud_mongo import Meta
+from .webhdfs import WebHDFS, async_walk, sync_walk
 
 KAFKA_TOPICS_FT = "fastrak2_s"
 KAFKA_TOPICS_FT_CM = "fastrak_cm_s"
@@ -96,6 +88,31 @@ else:
 SPARK_KERBEROS_KEYTAB = "/home/jovyan/.spark/spark.keytab"
 
 
+def nirscloud_webhdfs_auth(
+    kerberos_principal=SPARK_KERBEROS_PRINCIPAL,
+    credential_store=dict(keytab=SPARK_KERBEROS_KEYTAB),
+) -> httpx.Auth:
+    name = gssapi.Name(kerberos_principal, gssapi.NameType.kerberos_principal)
+    creds = gssapi.Credentials.acquire(name, store=credential_store).creds
+    return HTTPSPNEGOAuth(creds=creds)
+
+
+def create_webhdfs_client(
+    kerberos_principal=SPARK_KERBEROS_PRINCIPAL,
+    credential_store=dict(keytab=SPARK_KERBEROS_KEYTAB),
+    hdfs_masters=HDFS_MASTERS,
+    *,
+    # proxies={},
+    headers={},
+    limits=httpx.Limits(),
+) -> WebHDFS[httpx.Client]:
+    session = httpx.Client(http2=True, limits=limits)
+    session.auth = nirscloud_webhdfs_auth(kerberos_principal, credential_store)
+    # session.proxies.update(proxies)
+    session.headers.update(headers)
+    return WebHDFS(session, *hdfs_masters, port=HDFS_HTTPS_PORT)
+
+
 def create_webhfs_client(
     kerberos_principal=SPARK_KERBEROS_PRINCIPAL,
     credential_store=dict(keytab=SPARK_KERBEROS_KEYTAB),
@@ -103,207 +120,77 @@ def create_webhfs_client(
     *,
     proxies={},
     headers={},
-) -> Client:
-    url = ";".join(f"https://{url}:{HDFS_HTTPS_PORT}" for url in hdfs_masters)
-    name = gssapi.Name(kerberos_principal, gssapi.NameType.kerberos_principal)
-    creds = gssapi.Credentials.acquire(name, store=credential_store).creds
-    session = Session()
-    session.auth = HTTPSPNEGOAuth(creds=creds)
-    session.proxies.update(proxies)
+) -> WebHDFS[httpx.Client]:
+    from warnings import warn
+
+    warn(
+        "Call to deprecated function `create_webhfs_client`, use the correctly spelled `create_webhdfs_client`.",
+        category=DeprecationWarning,
+        stacklevel=2,
+    )
+    return create_webhdfs_client(kerberos_principal, credential_store, hdfs_masters, headers=headers)
+
+
+def create_async_webhdfs_client(
+    kerberos_principal=SPARK_KERBEROS_PRINCIPAL,
+    credential_store=dict(keytab=SPARK_KERBEROS_KEYTAB),
+    hdfs_masters=HDFS_MASTERS,
+    *,
+    # proxies={},
+    headers={},
+    limits=httpx.Limits(),
+) -> WebHDFS[httpx.AsyncClient]:
+    session = httpx.AsyncClient(http2=True, limits=limits)
+    session.auth = nirscloud_webhdfs_auth(kerberos_principal, credential_store)
+    # session.proxies.update(proxies)
     session.headers.update(headers)
-    return Client(url, session=session)
+    return WebHDFS(session, *hdfs_masters, port=HDFS_HTTPS_PORT)
 
 
-def read_table_from_meta(client: Client, meta: Meta, *hdfs_prefix_options: PurePosixPath) -> pa.Table:
+def read_table_from_meta(client: WebHDFS[httpx.Client], meta: Meta, *hdfs_prefix_options: PurePosixPath) -> pa.Table:
     def read_table(path: PurePosixPath) -> pa.Table:
-        with client.read(path) as reader:
-            return pq.read_table(BytesIO(reader.read()))
+        return pq.read_table(BytesIO(client.open(path)))
 
     for hdfs_prefix in hdfs_prefix_options:
-        status = client.status(hdfs_prefix / meta.hdfs, strict=False)
+        status = client.status(hdfs_prefix / meta.hdfs)
         if status is not None:
             break
     else:
         raise FileNotFoundError
     full_path = hdfs_prefix / meta.hdfs
-    if status["type"] == "FILE":
+    if status["FileStatus"]["type"] == "FILE":
         return read_table(full_path)
     tables = (
         read_table(PurePosixPath(path) / file)
-        for path, _, files in client.walk(full_path)
+        for path, _, files in sync_walk(client, full_path)
         for file in files
         if file.endswith(".parquet")
     )
     return pa.concat_tables(tables)
 
 
-def read_data_from_meta(client: Client, meta: Meta, *hdfs_prefix_options: PurePosixPath):
-    def read_data(path: PurePosixPath):
-        with client.read(path) as reader:
-            return pd.read_parquet(BytesIO(reader.read()))
+async def async_read_table_from_meta(
+    client: WebHDFS[httpx.AsyncClient], meta: Meta, *hdfs_prefix_options: PurePosixPath
+) -> pa.Table:
+    async def read_data(path: PurePosixPath) -> pa.Table:
+        return pq.read_table(BytesIO(await client.open(path)))
 
     for hdfs_prefix in hdfs_prefix_options:
-        if client.status(hdfs_prefix / meta.hdfs, strict=False) is not None:
+        status = await client.status(hdfs_prefix / meta.hdfs)
+        if status is not None:
             break
     else:
         raise FileNotFoundError
     full_path = hdfs_prefix / meta.hdfs
-    if client.status(full_path)["type"] == "FILE":
-        return read_data(full_path)
-    dfs = (
-        read_data(PurePosixPath(path) / file)
-        for path, _, files in client.walk(full_path)
-        for file in files
-        if file.endswith(".parquet")
+    if status["FileStatus"]["type"] == "FILE":
+        return await read_data(full_path)
+    tree = await async_walk(client, full_path)
+    tables = await asyncio.gather(
+        *(
+            read_data(PurePosixPath(path) / file)
+            for path, _, files in tree
+            for file in files
+            if file.endswith(".parquet")
+        )
     )
-    df = pd.concat(dfs)
-    df.reset_index(inplace=True, drop=True)
-    return df
-
-
-def _to_datetime_scalar(v, unit="D"):
-    if isinstance(v, np.generic):
-        return v.astype(f"datetime64[{unit}]")
-    else:
-        return np.datetime64(v, unit)
-
-
-def fastrak_ds_from_raw_df(df: pd.DataFrame, meta: FastrakMeta):
-    from scipy.spatial.transform import Rotation
-
-    position = df[["x", "y", "z"]]
-    orientation = Rotation.from_euler("ZYX", df[["a", "e", "r"]].to_numpy(), degrees=True).as_quat()[..., [3, 0, 1, 2]]
-    ds = xr.Dataset(
-        {
-            "idx": ("time", df["idx"]),
-            # nirscloud metadata doesn't include units, but fastrak is probably giving inches
-            "position": (
-                ("time", "cartesian_axes"),
-                position if meta.is_cm else (position * 2.54),
-                dict(units="cm"),
-            ),
-            "orientation": (("time", "quaternion_axes"), orientation),
-            # "orientation": ("time", quaternion.as_quat_array(orientation)),
-        },
-        coords={
-            "time": ("time", df["_nano_ts"].astype("datetime64[ns]")),
-            "cartesian_axes": ("cartesian_axes", ["x", "y", "z"]),
-            "quaternion_axes": ("quaternion_axes", ["w", "x", "y", "z"]),
-            "study": meta.study,
-            "subject": meta.subject,
-            "session": meta.session,
-            "device": meta.device,
-            "measurement": meta.measurement,
-            "date": _to_datetime_scalar(meta.date),
-            "note_id": meta.note_meta,
-            "meta_id": meta.meta,
-        },
-    )
-    ks, vs = zip(*ds.groupby("idx"))
-    ds = xr.concat([v.drop_vars("idx") for v in vs], pd.Index(ks, name="idx"))
-    return ds.sortby("time")
-
-
-def _fix_nested_array(array: np.ndarray):
-    if array.dtype == np.object_:
-        return np.stack([_fix_nested_array(a) for a in array])
-    else:
-        return array
-
-
-def nirs_ds_from_raw_df(df: pd.DataFrame, meta: NIRSMeta):
-    start = _to_datetime_scalar(df["_nano_ts"].min(), "ns")
-    end = _to_datetime_scalar(df["_nano_ts"].max(), "ns")
-    dt_dur = np.round((end - start) / np.timedelta64(1, "s")).astype("timedelta64[s]")
-    return xr.Dataset(
-        {
-            "ac": (("time", "wavelength", "rho"), _fix_nested_array(df["ac"])),
-            "phase": (
-                ("time", "wavelength", "rho"),
-                _fix_nested_array(df["phase"]),
-                dict(units="radian" if meta.is_radian else "deg"),
-            ),
-            "dc": (("time", "wavelength", "rho"), _fix_nested_array(df["dc"])),
-            "dark": (("time", "rho"), _fix_nested_array(df["dark"])),
-            "aux": (("time", "rho"), _fix_nested_array(df["aux"])),
-        },
-        coords={
-            "time": ("time", df["_offset_nano_ts"].astype("timedelta64[ns]")),
-            "nirs_start_time": start,
-            "nirs_end_time": end,
-            "duration": meta.duration if meta.duration is not None else dt_dur,
-            "wavelength": (
-                "wavelength",
-                np.array(meta.nirs_wavelengths),
-                dict(units="nm"),
-            ),
-            "rho": ("rho", np.array(meta.nirs_distances), dict(units="cm")),
-            "gain": ("rho", np.array(meta.gains)),
-            "study": meta.study,
-            "subject": meta.subject,
-            "session": meta.session,
-            "device": meta.device,
-            "measurement": meta.measurement,
-            "date": _to_datetime_scalar(meta.date),
-            "note_id": meta.note_meta,
-            "meta_id": meta.meta,
-        },
-    )
-
-
-def finapres_ds_from_raw_df(df: pd.DataFrame, meta: FinapresMeta):
-    return xr.Dataset(
-        {
-            "pressure": ("time", df["pressure_mmHg"], dict(units="mmHg")),
-            # "height": ("time", df["height_mmHg"], dict(units="mmHg")),
-            "plethysmograph": ("time", df["plethysmograph"]),
-        },
-        coords={
-            "time": ("time", df["_nano_ts"].astype("datetime64[ns]")),
-            "study": meta.study,
-            "subject": meta.subject,
-            "session": meta.session,
-            "device": meta.device,
-            "measurement": meta.measurement,
-            "date": _to_datetime_scalar(meta.date),
-            "note_id": meta.note_meta,
-            "meta_id": meta.meta,
-        },
-    )
-
-
-def patient_monitor_ds_from_raw_df(df: pd.DataFrame, meta: PatientMonitorMeta):
-    return {
-        idv: xr.DataArray(
-            df["val"],
-            dims="time",
-            coords={
-                "id": idv,
-                "time": ("time", df["_nano_ts"].astype("datetime64[ns]")),
-                "study": meta.study,
-                "subject": meta.subject,
-                "session": meta.session,
-                "device": meta.device,
-                "measurement": meta.measurement,
-                "date": _to_datetime_scalar(meta.date),
-                "note_id": meta.note_meta,
-                "meta_id": meta.meta,
-            },
-        ).sortby("time")
-        for idv, df in df.groupby("id")
-    }
-
-
-def read_fastrak_ds_from_meta(client: Client, meta: FastrakMeta):
-    return fastrak_ds_from_raw_df(
-        read_data_from_meta(
-            client,
-            meta,
-            HDFS_PREFIX_FT_CM if meta.is_cm else HDFS_PREFIX_FT,
-        ),
-        meta,
-    )
-
-
-def read_nirs_ds_from_meta(client: Client, meta: NIRSMeta):
-    return nirs_ds_from_raw_df(read_data_from_meta(client, meta, HDFS_PREFIX_N), meta)
+    return pa.concat_tables(tables)

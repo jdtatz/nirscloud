@@ -5,15 +5,15 @@ import uuid
 from collections.abc import Callable
 from dataclasses import MISSING, dataclass, field, fields
 from functools import partial
-from numbers import Real
 from pathlib import PurePath, PurePosixPath, PureWindowsPath
-from typing import Any, Optional
+from typing import Any, ClassVar, Optional, TypeVar, Union
 
 import numpy as np
 import pymongo
 import pymongo.collection
 import pymongo.cursor
 import pymongo.database
+from typing_extensions import Literal, dataclass_transform
 
 
 class MetaID(uuid.UUID):
@@ -28,19 +28,31 @@ class MetaID(uuid.UUID):
         return self.to_stripped_base64()
 
 
-def _id(v):
-    return v
+Real = Union[int, float]
 
 
 def _to_real(v: Any) -> Real:
-    return v if isinstance(v, Real) else float(v)
+    return v if isinstance(v, (int, float)) else float(v)
 
 
-def _from_query(
+def _projection_index(v: dict, projection_key: str):
+    for k in projection_key.split("."):
+        v = v[k]
+    return v
+
+
+_T = TypeVar("_T")
+
+
+def _id_cast(v: Any) -> _T:
+    return v
+
+
+def query_field(
     key: str,
-    converter: "Callable[[Any], Any]" = _id,
-    default=MISSING,
-    default_factory=MISSING,
+    converter: "Callable[[Any], _T]" = _id_cast,
+    default: "_T | Literal[MISSING]" = MISSING,
+    default_factory: "Callable[[], _T] | Literal[MISSING]" = MISSING,
     **field_kwargs,
 ):
     default_factory = (lambda: default) if default is not MISSING else default_factory
@@ -54,56 +66,31 @@ def _from_query(
     )
 
 
-def _projection_index(v: dict, projection_key: str):
-    for k in projection_key.split("."):
-        v = v[k]
-    return v
-
-
-@dataclass(frozen=True)
-class Meta:
+@dataclass_transform(field_specifiers=(query_field,), kw_only_default=True)
+class MongoMetaBase:
+    _database_name: ClassVar[str]
+    _collection_name: ClassVar[str]
+    _default_query: "ClassVar[dict[str, Any]]"
     _extra: "dict[str, Any]"
-    hdfs: PurePath = _from_query("hdfs_path", PurePosixPath)
-    date: datetime.date = _from_query("the_date", datetime.date.fromisoformat)
-    meta: MetaID = _from_query("meta_id", MetaID.from_stripped_base64)
-    measurement: str = _from_query("measurement_id", str)
-    subject: str = _from_query("subject_id", str)
+    # _extra: "dict[str, Any]" = field(init=False, default_factory=dict)
 
-    group: Optional[str] = _from_query("group_id", str, default=None)
-    note_meta: Optional[MetaID] = _from_query("note_id", MetaID.from_stripped_base64, default=None)
-    measurement_notes: Optional[str] = _from_query("note", str, default=None)
-    postfix: Optional[str] = _from_query("postfix_id", str, default=None)
-    session: Optional[str] = _from_query("session_id", str, default=None)
-    study: Optional[str] = _from_query("study_id", str, default=None)
-    device: Optional[str] = _from_query("device_id", str, default=None)
-    operators: "tuple[str, ...]" = _from_query("operators", tuple, default_factory=tuple)
-    mongo: Any = _from_query("_id", default=None)
-    file_prefix: Optional[PurePath] = _from_query("file_prefix", PureWindowsPath, default=None)
-
-    @classmethod
-    def query_converters(cls) -> "dict[str, tuple[str, Callable[[Any], Any]]]":
-        return {
-            f.metadata.get("query_key", f.name): (
-                f.name,
-                f.metadata.get("query_converter", _id),
-            )
-            for f in fields(cls)
-        }
-
-    @classmethod
-    def from_query(cls, query: "dict[str, Any]") -> "Meta":
-        converters = cls.query_converters()
-        qdefaults = dict(cls.query_defaults())
-        qfields = dict()
-        extra = dict()
-        for qk, qv in query.items():
-            converter = converters.get(qk, None)
-            if converter is None:
-                extra[qk] = qv
-            else:
-                k, f = converter
-                qfields[k] = f(qv)
-        return cls(**{"_extra": extra, **qdefaults, **qfields})
+    def __init_subclass__(
+        cls,
+        database_name: str,
+        collection_name: Optional[str] = None,
+        default_query: "Optional[dict[str, Any]]" = None,
+        *args,
+        init: bool = True,
+        frozen: bool = False,
+        eq: bool = True,
+        order: bool = True,
+        **kwargs,
+    ):
+        cls._database_name = database_name
+        cls._collection_name = f"{database_name}3" if collection_name is None else collection_name
+        cls._default_query = dict() if default_query is None else default_query
+        super().__init_subclass__(*args, **kwargs)
+        dataclass(cls, init=init, frozen=frozen, eq=eq, order=order)
 
     @classmethod
     def query_keys(cls):
@@ -117,60 +104,133 @@ class Meta:
                 yield (f.name, default_factory())
 
     @classmethod
-    def projection_fields(cls):
-        return [k if k in ("_id", "meta_id") else f"{k}.val" for k in cls.query_keys()]
+    def query_converters(cls) -> "dict[str, tuple[str, Callable[[Any], Any]]]":
+        return {
+            f.metadata.get("query_key", f.name): (
+                f.name,
+                f.metadata.get("query_converter", _id_cast),
+            )
+            for f in fields(cls)
+        }
+
+    @classmethod
+    def from_query(cls, query: "dict[str, Any]"):
+        converters = cls.query_converters()
+        qdefaults = dict(cls.query_defaults())
+        qfields = dict()
+        extra = dict()
+        for qk, qv in query.items():
+            converter = converters.get(qk, None)
+            if converter is None:
+                extra[qk] = qv
+            else:
+                k, f = converter
+                qfields[k] = f(qv)
+        obj = cls(**{**qdefaults, **qfields})
+        obj._extra = extra
+        return obj
 
 
-# @dataclass(frozen=True)
-# class NotesMeta(Meta):
-#     duration: Optional[int] = _from_query("duration", lambda v: datetime.timedelta(seconds=_to_real(v)), default=None)
-#     is_fastrak: bool = _from_query("isFasTrak", bool, default=False)
-#     is_finapres: bool = _from_query("isFinapres", bool, default=False)
-#     is_metaox: bool = _from_query("isMetaOx", bool, default=False)
-#     is_pm: bool = _from_query("isPM", bool, default=False)
-#     is_with_hairline: bool = _from_query("isWithHairline", bool, default=False)
-#     is_with_probe: bool = _from_query("isWithProbe", bool, default=False)
-#     measurement_sites: "tuple[str, ...]" = _from_query("measurementSites", tuple, default_factory=tuple)
-#     pm_info: "dict[str, Any]" = _from_query("pm", default_factory=dict)
-#     locations_measured: "tuple[str, ...]" = _from_query("locations_measured", tuple, default_factory=tuple)
-#     txt_filepath: Optional[PurePosixPath] = _from_query("txt_filename", PurePosixPath, default=None)
-#     yaml_filepath: Optional[PurePosixPath] = _from_query("yaml_filename", PurePosixPath, default=None)
+class Meta(MongoMetaBase, database_name="meta"):
+    mongo: Any = query_field("_id", default=None)
+    hdfs: PurePath = query_field("hdfs_path", PurePosixPath)
+    date: datetime.date = query_field("the_date", datetime.date.fromisoformat)
+    meta: MetaID = query_field("meta_id", MetaID.from_stripped_base64)
+    measurement: str = query_field("measurement_id", str)
+    subject: str = query_field("subject_id", str)
+
+    group: Optional[str] = query_field("group_id", str, default=None)
+    note_meta: Optional[MetaID] = query_field("note_id", MetaID.from_stripped_base64, default=None)
+    measurement_notes: Optional[str] = query_field("note", str, default=None)
+    postfix: Optional[str] = query_field("postfix_id", str, default=None)
+    session: Optional[str] = query_field("session_id", str, default=None)
+    study: Optional[str] = query_field("study_id", str, default=None)
+    device: Optional[str] = query_field("device_id", str, default=None)
+    operators: "tuple[str, ...]" = query_field("operators", tuple, default_factory=tuple)
+    file_prefix: Optional[PurePath] = query_field("file_prefix", PureWindowsPath, default=None)
 
 
-@dataclass(frozen=True)
-class FastrakMeta(Meta):
-    is_cm: bool = _from_query("is_fastrak_cm", bool, default=False)
+# class NotesMeta(Meta, database_name="meta"):
+#     duration: Optional[int] = query_field("duration", lambda v: datetime.timedelta(seconds=_to_real(v)), default=None)
+#     is_fastrak: bool = query_field("isFasTrak", bool, default=False)
+#     is_finapres: bool = query_field("isFinapres", bool, default=False)
+#     is_metaox: bool = query_field("isMetaOx", bool, default=False)
+#     is_pm: bool = query_field("isPM", bool, default=False)
+#     is_with_hairline: bool = query_field("isWithHairline", bool, default=False)
+#     is_with_probe: bool = query_field("isWithProbe", bool, default=False)
+#     measurement_sites: "tuple[str, ...]" = query_field("measurementSites", tuple, default_factory=tuple)
+#     pm_info: "dict[str, Any]" = query_field("pm", default_factory=dict)
+#     locations_measured: "tuple[str, ...]" = query_field("locations_measured", tuple, default_factory=tuple)
+#     txt_filepath: Optional[PurePosixPath] = query_field("txt_filename", PurePosixPath, default=None)
+#     yaml_filepath: Optional[PurePosixPath] = query_field("yaml_filename", PurePosixPath, default=None)
 
 
-@dataclass(frozen=True)
-class NIRSMeta(Meta):
-    nirs_distances: "tuple[Real, ...]" = _from_query("nirsDistances", tuple)
-    nirs_wavelengths: "Optional[tuple[Real, ...]]" = _from_query("nirsWavelengths", tuple, default=None)
-    nirs_hz: Real = _from_query("nirs_hz", _to_real)
-    dcs_distances: "tuple[Real, ...]" = _from_query("dcsDistances", tuple)
-    dcs_wavelength: "Optional[Real]" = _from_query("dcsWavelength", _to_real, default=None)
-    dcs_hz: "Optional[Real]" = _from_query("dcs_hz", _to_real, default=None)
-    gains: "Optional[tuple[Real, ...]]" = _from_query("gains", tuple, default=None)
-    is_radian: bool = _from_query("is_nirs_radian_single", bool, default=False)
-    duration: Optional[datetime.timedelta] = _from_query(
+class FastrakMeta(Meta, database_name="meta", default_query={"n_fastrak_dedup.val": {"$exists": True}}):
+    is_cm: bool = query_field("is_fastrak_cm", bool, default=False)
+
+
+class NIRSMeta(
+    Meta,
+    database_name="meta",
+    default_query={
+        "n_nirs_dedup.val": {"$exists": True},
+        "isValid.val": {"$ne": False},
+    },
+):
+    nirs_distances: "tuple[Real, ...]" = query_field("nirsDistances", tuple)
+    nirs_wavelengths: "Optional[tuple[Real, ...]]" = query_field("nirsWavelengths", tuple, default=None)
+    nirs_hz: Real = query_field("nirs_hz", _to_real)
+    dcs_distances: "tuple[Real, ...]" = query_field("dcsDistances", tuple)
+    dcs_wavelength: "Optional[Real]" = query_field("dcsWavelength", _to_real, default=None)
+    dcs_hz: "Optional[Real]" = query_field("dcs_hz", _to_real, default=None)
+    gains: "Optional[tuple[Real, ...]]" = query_field("gains", tuple, default=None)
+    is_radian: bool = query_field("is_nirs_radian_single", bool, default=False)
+    duration: Optional[datetime.timedelta] = query_field(
         "duration", lambda v: datetime.timedelta(seconds=float(v)), default=None
     )
-    nirs_start: Optional[np.datetime64] = _from_query("nirsStartNanoTS", lambda v: np.datetime64(v, "ns"), default=None)
-    nirs_end: Optional[np.datetime64] = _from_query("nirsEndNanoTS", lambda v: np.datetime64(v, "ns"), default=None)
-    dcs_start: Optional[np.datetime64] = _from_query("dcsStartNanoTS", lambda v: np.datetime64(v, "ns"), default=None)
-    dcs_end: Optional[np.datetime64] = _from_query("dcsEndNanoTS", lambda v: np.datetime64(v, "ns"), default=None)
-    nirsraw_filepath: Optional[PurePosixPath] = _from_query("nirsraw_filename", PurePosixPath, default=None)
-    dcsraw_filepath: Optional[PurePosixPath] = _from_query("dcsraw_filename", PurePosixPath, default=None)
+    nirs_start: Optional[np.datetime64] = query_field("nirsStartNanoTS", lambda v: np.datetime64(v, "ns"), default=None)
+    nirs_end: Optional[np.datetime64] = query_field("nirsEndNanoTS", lambda v: np.datetime64(v, "ns"), default=None)
+    dcs_start: Optional[np.datetime64] = query_field("dcsStartNanoTS", lambda v: np.datetime64(v, "ns"), default=None)
+    dcs_end: Optional[np.datetime64] = query_field("dcsEndNanoTS", lambda v: np.datetime64(v, "ns"), default=None)
+    nirsraw_filepath: Optional[PurePosixPath] = query_field("nirsraw_filename", PurePosixPath, default=None)
+    dcsraw_filepath: Optional[PurePosixPath] = query_field("dcsraw_filename", PurePosixPath, default=None)
 
 
-@dataclass(frozen=True)
-class FinapresMeta(Meta):
+class FinapresMeta(Meta, database_name="meta", default_query={"n_waveform_dedup.val": {"$exists": True}}):
     # device_id
     pass
 
 
-@dataclass(frozen=True)
-class PatientMonitorMeta(Meta):
+class PatientMonitorMeta(
+    Meta,
+    database_name="meta",
+    default_query={"n_waves_dedup.val": {"$exists": True}, "n_numerics_dedup.val": {"$exists": True}},
+):
+    pass
+
+
+class VentMeta(MongoMetaBase, database_name="meta_by_bed"):
+    mongo: Any = query_field("_id", default=None)
+    meta: str = query_field("meta_id")
+    bed: str = query_field("bed_id")
+    device: str = query_field("device_id")
+    topic: str = query_field("the_topic")
+    date: datetime.date = query_field("the_date", datetime.date.fromisoformat)
+    count: int = query_field("count")
+    timestamp: np.datetime64 = query_field("the_nano_ts", lambda v: np.datetime64(v, "ns"))
+    hour: Optional[str] = query_field("hr", default=None)
+    agg_by_hr: Optional[bool] = query_field("is_agg_by_hr", default=None)
+    agg_by_day: Optional[bool] = query_field("is_agg_by_day", default=None)
+    removed_kafka_topic: Optional[bool] = query_field("is_remove_kafka_topics", default=None)
+
+
+class VentWaveMeta(VentMeta, database_name="meta_by_bed", default_query={"the_topic.val": "bch_vent_waves2_s"}):
+    pass
+
+
+class VentNumericMeta(
+    VentMeta, database_name="meta_by_bed_day", default_query={"the_topic.val": "bch_vent_numerics2_s"}
+):
     pass
 
 
@@ -190,9 +250,16 @@ META_DATABASE_KEY: str = "meta"
 META_COLLECTION_KEY: str = "meta3"
 
 
-def query_meta(client: pymongo.MongoClient, query: dict, fields=None, find_kwargs=None):
-    db: pymongo.database.Database = client[META_DATABASE_KEY]
-    col: pymongo.collection.Collection = db[META_COLLECTION_KEY]
+def query_meta(
+    client: pymongo.MongoClient,
+    query: dict,
+    fields=None,
+    find_kwargs=None,
+    database_name=META_DATABASE_KEY,
+    collection_name=META_COLLECTION_KEY,
+):
+    db: pymongo.database.Database = client[database_name]
+    col: pymongo.collection.Collection = db[collection_name]
     cursor: pymongo.cursor.Cursor = col.find(
         filter=query,
         projection=[f if f in ("_id", "meta_id") else f"{f}.val" for f in fields] if fields is not None else None,
@@ -205,63 +272,26 @@ def query_meta_typed(
     client: pymongo.MongoClient,
     query={},
     find_kwargs=None,
-    meta_type: typing.Type[Meta] = Meta,
+    meta_type: typing.Type[MongoMetaBase] = Meta,
 ):
     yield from map(
         meta_type.from_query,
         query_meta(
             client,
-            query,
+            {**meta_type._default_query, **query},
             fields=meta_type.query_keys(),
             find_kwargs=find_kwargs,
+            database_name=meta_type._database_name,
+            collection_name=meta_type._collection_name,
         ),
     )
 
 
-# def query_notes_meta(client: pymongo.MongoClient, query={}, find_kwargs=None):
-#     yield from query_meta_typed(
-#         client,
-#         query={"the_type.val": "notes", **query},
-#         find_kwargs=find_kwargs,
-#         meta_type=NotesMeta,
-#     )
-
-
-def query_fastrak_meta(client: pymongo.MongoClient, query={}, find_kwargs=None):
-    yield from query_meta_typed(
-        client,
-        query={"n_fastrak_dedup.val": {"$exists": True}, **query},
-        find_kwargs=find_kwargs,
-        meta_type=FastrakMeta,
-    )
-
-
-def query_nirs_meta(client: pymongo.MongoClient, query={}, find_kwargs=None):
-    yield from query_meta_typed(
-        client,
-        query={"n_nirs_dedup.val": {"$exists": True}, "isValid.val": {"$ne": False}, **query},
-        find_kwargs=find_kwargs,
-        meta_type=NIRSMeta,
-    )
-
-
-def query_finapres_meta(client: pymongo.MongoClient, query={}, find_kwargs=None):
-    yield from query_meta_typed(
-        client,
-        query={"n_waveform_dedup.val": {"$exists": True}, **query},
-        find_kwargs=find_kwargs,
-        meta_type=FinapresMeta,
-    )
-
-
-def query_patient_monitor_meta(client: pymongo.MongoClient, query={}, find_kwargs=None):
-    yield from query_meta_typed(
-        client,
-        query={
-            "n_waves_dedup.val": {"$exists": True},
-            "n_numerics_dedup.val": {"$exists": True},
-            **query,
-        },
-        find_kwargs=find_kwargs,
-        meta_type=PatientMonitorMeta,
-    )
+# query_notes_meta = partial(query_meta_typed, meta_type=NotesMeta)
+query_fastrak_meta = partial(query_meta_typed, meta_type=FastrakMeta)
+query_nirs_meta = partial(query_meta_typed, meta_type=NIRSMeta)
+query_finapres_meta = partial(query_meta_typed, meta_type=FinapresMeta)
+query_patient_monitor_meta = partial(query_meta_typed, meta_type=PatientMonitorMeta)
+query_vent_meta = partial(query_meta_typed, meta_type=VentMeta)
+query_vent_waves_meta = partial(query_meta_typed, meta_type=VentWaveMeta)
+query_vent_n_meta = partial(query_meta_typed, meta_type=VentNumericMeta)

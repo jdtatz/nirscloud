@@ -58,11 +58,13 @@ def _to_datetime_scalar(v, unit="D"):
 if hasattr(str, "removeprefix"):
     str_removeprefix = str.removeprefix
 else:
+
     def _removeprefix(self: str, prefix: str) -> str:
         if self.startswith(prefix):
-            return self[len(prefix):]
+            return self[len(prefix) :]
         else:
             return self[:]
+
     str_removeprefix = _removeprefix
 
 
@@ -71,15 +73,17 @@ def _maybe_rsplit_once(s: str, sep: Optional[str]):
     if len(tail) == 0:
         return head, None
     elif len(tail) == 1:
-        tail, = tail
-        return head, tail
-    raise RuntimeError(f"builtin `str.rsplit(sep, maxsplit=1)` broke invariants. Should've only returned 2 values at most, but returned {1 + len(tail)} values")
+        (rest,) = tail
+        return head, rest
+    raise RuntimeError(
+        f"builtin `str.rsplit(sep, maxsplit=1)` broke invariants. Should've only returned 2 values at most, but returned {1 + len(tail)} values"
+    )
 
 
 def add_meta_coords(ds: xr.Dataset, meta: Meta):
     loc, trial = _maybe_rsplit_once(meta.measurement, "_")
     trial = None if trial is None else int(trial)
-    session = int(str_removeprefix(meta.session, "S"))
+    session = int(str_removeprefix(meta.session, "S")) if meta.session else None
 
     coords = {
         "study": meta.study,
@@ -112,10 +116,10 @@ def add_meta_coords(ds: xr.Dataset, meta: Meta):
         ds["time"] = ds["time"] - ds["time"][0]
         ds = ds.assign(phase=ds["phase"].assign_attrs(units="radian" if meta.is_radian else "deg"))
     elif isinstance(meta, FastrakMeta):
-        position = ds["position"].assign_attrs(units="cm")
+        position = ds["position"]
         if not meta.is_cm:
             position = position * 2.54
-        ds = ds.assign(position=position)
+        ds = ds.assign(position=position.assign_attrs(units="cm"))
     elif isinstance(meta, FinapresMeta):
         pass
     elif isinstance(meta, PatientMonitorMeta):
@@ -140,20 +144,44 @@ def _from_chunked_array(carray: pa.ChunkedArray) -> np.ndarray:
     )
 
 
+def _unique_squeezed_attr_or_drop(da: xr.DataArray):
+    ks = [k for k in da.coords if k not in da.dims]
+    for k in ks:
+        v = np.unique(da[k]).squeeze()
+        da = da.drop_vars(k)
+        if v.ndim == 0:
+            da = da.assign_attrs({k: v})
+    return da
+
+
+def _time_from_table(table: pa.Table):
+    if "_nano_ts" in table.column_names:
+        return _from_chunked_array(table["_nano_ts"]).astype("datetime64[ns]")
+    elif "_milli_ts" in table.column_names:
+        return _from_chunked_array(table["_milli_ts"]).astype("datetime64[ms]")
+    else:
+        raise KeyError(f"No known time column, `_nano_ts` or `_milli_ts`, found in the table. [{table.column_names}]")
+
+
 def nirs_ds_from_table(table: pa.Table):
-    return xr.Dataset(
-        data_vars=dict(
-            ac=(("time", "wavelength", "rho"), _from_chunked_array(table["ac"])),
-            phase=(("time", "wavelength", "rho"), _from_chunked_array(table["phase"])),
-            dc=(("time", "wavelength", "rho"), _from_chunked_array(table["dc"])),
-            dark=(("time", "rho"), _from_chunked_array(table["dark"])),
-            aux=(("time", "rho"), _from_chunked_array(table["aux"])),
-        ),
-        coords=dict(time=("time", _from_chunked_array(table["_nano_ts"]).astype("datetime64[ns]"))),
-    ).transpose(..., "time").sortby("time")
+    return (
+        xr.Dataset(
+            data_vars=dict(
+                ac=(("time", "wavelength", "rho"), _from_chunked_array(table["ac"])),
+                phase=(("time", "wavelength", "rho"), _from_chunked_array(table["phase"])),
+                dc=(("time", "wavelength", "rho"), _from_chunked_array(table["dc"])),
+                dark=(("time", "rho"), _from_chunked_array(table["dark"])),
+                aux=(("time", "rho"), _from_chunked_array(table["aux"])),
+            ),
+            coords=dict(time=("time", _time_from_table(table))),
+        )
+        .transpose(..., "time")
+        .sortby("time")
+    )
 
 
 def fastrak_ds_from_table(table: pa.Table):
+    # idx=0 is always the pen, idx=1 is always the nirs sensor, and if idx=2 exists then it's the head sensor (refrence point for dual-quat transformation)
     from scipy.spatial.transform import Rotation
 
     cartesian_axes = "x", "y", "z"
@@ -170,7 +198,7 @@ def fastrak_ds_from_table(table: pa.Table):
         ),
         coords=dict(
             idx=("stacked", _from_chunked_array(table["idx"])),
-            time=("stacked", _from_chunked_array(table["_nano_ts"]).astype("datetime64[ns]")),
+            time=("stacked", _time_from_table(table)),
             cartesian_axes=("cartesian_axes", list(cartesian_axes)),
             quaternion_axes=("quaternion_axes", list(quaternion_axes)),
         ),
@@ -187,20 +215,57 @@ def finapres_ds_from_table(table: pa.Table):
             plethysmograph=("time", _from_chunked_array(table["plethysmograph"])),
         ),
         coords=dict(
-            time=("time", _from_chunked_array(table["_nano_ts"]).astype("datetime64[ns]")),
+            time=("time", _time_from_table(table)),
         ),
     ).sortby("time")
 
 
-def patient_monitor_da_dict_from_table(table: pa.Table):
-    return {
-        pm_id: ds.drop_vars("id").sortby("time").assign_coords({"id": pm_id})
-        for pm_id, ds in xr.DataArray(
-            _from_chunked_array(table["val"]),
-            dims="time",
-            coords=dict(
-                time=("time", _from_chunked_array(table["_nano_ts"]).astype("datetime64[ns]")),
-                id=("time", _from_chunked_array(table["id"])),
-            ),
-        ).groupby("id")
+def id_val_dict_from_table(table: pa.Table, *attr_fields: str, **renamed_attr_fields: str):
+    idval_da = xr.DataArray(
+        _from_chunked_array(table["val"]),
+        dims="time",
+        coords={
+            "time": ("time", _time_from_table(table)),
+            "id": ("time", _from_chunked_array(table["id"])),
+            **{k: ("time", _from_chunked_array(table[k])) for k in attr_fields},
+            **{k: ("time", _from_chunked_array(table[t_k])) for k, t_k in renamed_attr_fields.items()},
+        },
+    )
+    idval_da_dict = {
+        k: _unique_squeezed_attr_or_drop(da.drop_vars("id").sortby("time").rename(k))
+        for k, da in idval_da.groupby("id")
     }
+    return idval_da_dict
+
+
+def id_val_ds_from_table(table: pa.Table):
+    return (
+        xr.DataArray(
+            _from_chunked_array(table["val"]),
+            dims="stacked",
+            coords={
+                "time": ("stacked", _time_from_table(table)),
+                "id": ("stacked", _from_chunked_array(table["id"])),
+            },
+        )
+        .set_index(stacked=["id", "time"])
+        .to_unstacked_dataset("id")
+        .sortby("time")
+    )
+
+
+def patient_monitor_da_dict_from_table(table: pa.Table):
+    return id_val_dict_from_table(table)
+
+
+def vent_ds_from_table(table: pa.Table):
+    ds = id_val_ds_from_table(table)
+    ds = ds.rename_vars(
+        {"AFlo": "flow", "APre": "pressure", "Vol": "volume", "PHASE": "device_phase", "CO2m": "co2"}
+    ).drop_vars("CO2p")
+    ds["co2"] = ds["co2"].assign_attrs(units="mmHg")
+    return ds
+
+
+def vent_n_ds_from_table(table: pa.Table):
+    return id_val_ds_from_table(table, units="unit")

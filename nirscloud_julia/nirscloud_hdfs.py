@@ -2,6 +2,7 @@ import asyncio
 import os
 from io import BytesIO
 from pathlib import PurePosixPath
+from typing import Optional
 
 import gssapi
 import httpx
@@ -71,6 +72,7 @@ PATIENT_MONITOR_COMPONENT_MAPPING = {
 HDFS_MASTERS = "hdfs1.babynirs.org", "hdfs2.babynirs.org", "hdfs4.babynirs.org"
 HDFS_HTTPS_PORT = 9870
 HDFS_HTTP_PORT = 9871
+SPARK_KERBEROS_PRINCIPAL: Optional[str]
 if "JUPYTERHUB_USER" in os.environ:
     SPARK_KERBEROS_PRINCIPAL = f"{os.environ['JUPYTERHUB_USER']}@BABYNIRS.ORG"
 elif "USER" in os.environ:
@@ -102,13 +104,12 @@ def create_webhdfs_client(
     credential_store=dict(keytab=SPARK_KERBEROS_KEYTAB),
     hdfs_masters=HDFS_MASTERS,
     *,
-    # proxies={},
+    proxies=None,
     headers={},
     limits=httpx.Limits(),
 ) -> WebHDFS[httpx.Client]:
-    session = httpx.Client(http2=True, limits=limits)
+    session = httpx.Client(http2=True, limits=limits, proxies=proxies)
     session.auth = nirscloud_webhdfs_auth(kerberos_principal, credential_store)
-    # session.proxies.update(proxies)
     session.headers.update(headers)
     return WebHDFS(session, *hdfs_masters, port=HDFS_HTTPS_PORT)
 
@@ -136,11 +137,11 @@ def create_async_webhdfs_client(
     credential_store=dict(keytab=SPARK_KERBEROS_KEYTAB),
     hdfs_masters=HDFS_MASTERS,
     *,
-    # proxies={},
+    proxies=None,
     headers={},
     limits=httpx.Limits(),
 ) -> WebHDFS[httpx.AsyncClient]:
-    session = httpx.AsyncClient(http2=True, limits=limits)
+    session = httpx.AsyncClient(http2=True, limits=limits, proxies=proxies)
     session.auth = nirscloud_webhdfs_auth(kerberos_principal, credential_store)
     # session.proxies.update(proxies)
     session.headers.update(headers)

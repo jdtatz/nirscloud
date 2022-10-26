@@ -3,9 +3,13 @@ from .nirscloud_data import (
     add_meta_coords,
     fastrak_ds_from_table,
     finapres_ds_from_table,
+    id_val_dict_from_table,
+    id_val_ds_from_table,
     nirs_ds_from_table,
     patient_monitor_da_dict_from_table,
     read_nirsraw,
+    vent_ds_from_table,
+    vent_n_ds_from_table,
 )
 from .nirscloud_hdfs import (
     HDFS_FASTRAK_PREFIXES,
@@ -29,8 +33,12 @@ from .nirscloud_mongo import (
     FinapresMeta,
     Meta,
     MetaID,
+    MongoMetaBase,
     NIRSMeta,
     PatientMonitorMeta,
+    VentMeta,
+    VentNumericMeta,
+    VentWaveMeta,
     create_mongo_client,
     query_fastrak_meta,
     query_finapres_meta,
@@ -38,5 +46,8 @@ from .nirscloud_mongo import (
     query_meta_typed,
     query_nirs_meta,
     query_patient_monitor_meta,
+    query_vent_meta,
+    query_vent_n_meta,
+    query_vent_waves_meta,
 )
 from .webhdfs import HDFSRemoteException, WebHDFS, async_walk, sync_walk

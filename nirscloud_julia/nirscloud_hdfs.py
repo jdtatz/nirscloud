@@ -31,6 +31,9 @@ PM_N_KAFKA_TOPICS = "ixtrend_numerics2_s", "ixtrend_numerics_s", "ixtrend_numeri
 HDFS_NAMESERVICE = "BabyNIRSHDFS"
 HDFS_PREFIX_DEDUP = PurePosixPath("/nirscloud/dedup")
 HDFS_PREFIX_AGG = PurePosixPath("/nirscloud/agg")
+HDFS_PREFIX_AGG_HR = PurePosixPath("/nirscloud/agg_by_hr")
+HDFS_PREFIX_AGG_DAY = PurePosixPath("/nirscloud/agg_by_day")
+HDFS_PREFIX_KAFKA_TOPICS = PurePosixPath("/kafka/topics")
 HDFS_PREFIX = HDFS_PREFIX_AGG
 
 HDFS_PREFIX_FT = HDFS_PREFIX_AGG / KAFKA_TOPICS_FT

@@ -13,6 +13,7 @@ import pymongo
 import pymongo.collection
 import pymongo.cursor
 import pymongo.database
+from bson import ObjectId
 from typing_extensions import Literal, dataclass_transform
 
 
@@ -132,7 +133,7 @@ class MongoMetaBase:
 
 
 class Meta(MongoMetaBase, database_name="meta"):
-    mongo: Any = query_field("_id", default=None)
+    mongo: ObjectId = query_field("_id")
     hdfs: PurePath = query_field("hdfs_path", PurePosixPath)
     date: datetime.date = query_field("the_date", datetime.date.fromisoformat)
     meta: MetaID = query_field("meta_id", MetaID.from_stripped_base64)
@@ -169,7 +170,7 @@ class FastrakMeta(Meta, database_name="meta", default_query={"n_fastrak_dedup.va
     is_cm: bool = query_field("is_fastrak_cm", bool, default=False)
 
 
-class NIRSMeta(
+class MetaOxMeta(
     Meta,
     database_name="meta",
     default_query={
@@ -194,6 +195,28 @@ class NIRSMeta(
     dcs_end: Optional[np.datetime64] = query_field("dcsEndNanoTS", lambda v: np.datetime64(v, "ns"), default=None)
     nirsraw_filepath: Optional[PurePosixPath] = query_field("nirsraw_filename", PurePosixPath, default=None)
     dcsraw_filepath: Optional[PurePosixPath] = query_field("dcsraw_filename", PurePosixPath, default=None)
+
+
+class NIRSMeta(
+    MetaOxMeta,
+    database_name="meta",
+    default_query={
+        "n_nirs_dedup.val": {"$exists": True},
+        "isValid.val": {"$ne": False},
+    },
+):
+    pass
+
+
+class DCSMeta(
+    MetaOxMeta,
+    database_name="meta",
+    default_query={
+        "n_dcs_dedup.val": {"$exists": True},
+        "isValid.val": {"$ne": False},
+    },
+):
+    pass
 
 
 class FinapresMeta(Meta, database_name="meta", default_query={"n_waveform_dedup.val": {"$exists": True}}):
@@ -234,6 +257,14 @@ class VentNumericMeta(
     pass
 
 
+class NkWaveMeta(
+    VentMeta,
+    database_name="meta_by_bed",
+    default_query={"the_topic.val": {"$regex": "nk_waves.*"}},
+):
+    pass
+
+
 create_mongo_client = partial(
     pymongo.MongoClient,
     host="mongos.mongo.svc.cluster.local",
@@ -244,6 +275,8 @@ create_mongo_client = partial(
     # Changed in version 3.12: ssl_certfile and ssl_keyfile were deprecated in favor of tlsCertificateKeyFile.
     ssl_certfile="/etc/mongo/jhub-keypem.pem",
     ssl_ca_certs="/etc/mongo/root-ca.pem",
+    # tlsCertificateKeyFile="/etc/mongo/jhub-keypem.pem",
+    # tlsCAFile="/etc/mongo/root-ca.pem",
 )
 
 META_DATABASE_KEY: str = "meta"
@@ -279,7 +312,7 @@ def query_meta_typed(
         query_meta(
             client,
             {**meta_type._default_query, **query},
-            fields=meta_type.query_keys(),
+            # fields=meta_type.query_keys(),
             find_kwargs=find_kwargs,
             database_name=meta_type._database_name,
             collection_name=meta_type._collection_name,
@@ -290,8 +323,10 @@ def query_meta_typed(
 # query_notes_meta = partial(query_meta_typed, meta_type=NotesMeta)
 query_fastrak_meta = partial(query_meta_typed, meta_type=FastrakMeta)
 query_nirs_meta = partial(query_meta_typed, meta_type=NIRSMeta)
+query_dcs_meta = partial(query_meta_typed, meta_type=DCSMeta)
 query_finapres_meta = partial(query_meta_typed, meta_type=FinapresMeta)
 query_patient_monitor_meta = partial(query_meta_typed, meta_type=PatientMonitorMeta)
 query_vent_meta = partial(query_meta_typed, meta_type=VentMeta)
 query_vent_waves_meta = partial(query_meta_typed, meta_type=VentWaveMeta)
 query_vent_n_meta = partial(query_meta_typed, meta_type=VentNumericMeta)
+query_nk_waves_meta = partial(query_meta_typed, meta_type=NkWaveMeta)

@@ -4,11 +4,9 @@ from io import BytesIO
 from pathlib import PurePosixPath
 from typing import Optional
 
-import gssapi
 import httpx
 import pyarrow as pa
 import pyarrow.parquet as pq
-from httpx_gssapi import HTTPSPNEGOAuth
 
 from .nirscloud_mongo import Meta
 from .webhdfs import WebHDFS, async_walk, sync_walk
@@ -16,6 +14,7 @@ from .webhdfs import WebHDFS, async_walk, sync_walk
 KAFKA_TOPICS_FT = "fastrak2_s"
 KAFKA_TOPICS_FT_CM = "fastrak_cm_s"
 KAFKA_TOPICS_N = "metaox_nirs_rs"
+KAFKA_TOPICS_D = "metaox_dcs_s"
 KAFKA_TOPICS_FP = "finapres_waveform_s"
 KAFKA_TOPICS_FP_2 = "finapres_waveform2_s"
 KAFKA_TOPICS_FP_3 = "finapres_waveform_su"
@@ -24,6 +23,7 @@ KAFKA_TOPICS_PM_N = "ixtrend_numerics2_s"
 
 FASTRAK_KAFKA_TOPICS = KAFKA_TOPICS_FT_CM, KAFKA_TOPICS_FT
 NIRS_KAFKA_TOPICS = (KAFKA_TOPICS_N,)
+DCS_KAFKA_TOPICS = (KAFKA_TOPICS_D,)
 FINAPRES_KAFKA_TOPICS = KAFKA_TOPICS_FP_3, KAFKA_TOPICS_FP_2, KAFKA_TOPICS_FP
 PM_KAFKA_TOPICS = "ixtrend_waves5_s", "ixtrend_waves4_s", "ixtrend_waves3_s", "ixtrend_waves2_s", "ixtrend_waves"
 PM_N_KAFKA_TOPICS = "ixtrend_numerics2_s", "ixtrend_numerics_s", "ixtrend_numerics"
@@ -36,6 +36,7 @@ HDFS_PREFIX = HDFS_PREFIX_AGG
 HDFS_PREFIX_FT = HDFS_PREFIX_AGG / KAFKA_TOPICS_FT
 HDFS_PREFIX_FT_CM = HDFS_PREFIX_AGG / KAFKA_TOPICS_FT_CM
 HDFS_PREFIX_N = HDFS_PREFIX_DEDUP / KAFKA_TOPICS_N
+HDFS_PREFIX_D = HDFS_PREFIX_DEDUP / KAFKA_TOPICS_D
 HDFS_PREFIX_FP = HDFS_PREFIX_DEDUP / KAFKA_TOPICS_FP
 HDFS_PREFIX_FP_2 = HDFS_PREFIX_AGG / KAFKA_TOPICS_FP_2
 HDFS_PREFIX_FP_3 = HDFS_PREFIX_AGG / KAFKA_TOPICS_FP_3
@@ -44,6 +45,7 @@ HDFS_PREFIX_PM_N = HDFS_PREFIX_AGG / KAFKA_TOPICS_PM_N
 
 HDFS_FASTRAK_PREFIXES = HDFS_PREFIX_FT_CM, HDFS_PREFIX_FT, HDFS_PREFIX_DEDUP / "fastrak_s"
 HDFS_NIRS_PREFIXES = (HDFS_PREFIX_N,)
+HDFS_DCS_PREFIXES = (HDFS_PREFIX_D,)
 HDFS_FINAPRES_PREFIXES = HDFS_PREFIX_FP_3, HDFS_PREFIX_FP_2, HDFS_PREFIX_FP
 HDFS_PM_PREFIXES = (HDFS_PREFIX_PM, *(HDFS_PREFIX_DEDUP / t for t in PM_KAFKA_TOPICS))
 HDFS_PM_N_PREFIXES = (HDFS_PREFIX_PM_N, *(HDFS_PREFIX_DEDUP / t for t in PM_N_KAFKA_TOPICS))
@@ -94,6 +96,9 @@ def nirscloud_webhdfs_auth(
     kerberos_principal=SPARK_KERBEROS_PRINCIPAL,
     credential_store=dict(keytab=SPARK_KERBEROS_KEYTAB),
 ) -> httpx.Auth:
+    import gssapi
+    from httpx_gssapi import HTTPSPNEGOAuth
+
     name = gssapi.Name(kerberos_principal, gssapi.NameType.kerberos_principal)
     creds = gssapi.Credentials.acquire(name, store=credential_store).creds
     return HTTPSPNEGOAuth(creds=creds)

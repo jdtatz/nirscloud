@@ -7,6 +7,7 @@ import pyarrow as pa
 import xarray as xr
 
 from .nirscloud_mongo import (
+    DCSMeta,
     FastrakMeta,
     FinapresMeta,
     Meta,
@@ -108,6 +109,7 @@ def add_meta_coords(ds: xr.Dataset, meta: Meta):
             nirs_end_time=end,
             duration=meta.duration if meta.duration is not None else dt_dur,
             rho=("rho", np.array(meta.nirs_distances), dict(units="cm")),
+            frequency=((), meta.nirs_hz, dict(units="Hz")),
         )
         if meta.nirs_wavelengths is not None:
             coords["wavelength"] = "wavelength", np.array(meta.nirs_wavelengths), dict(units="nm")
@@ -115,6 +117,20 @@ def add_meta_coords(ds: xr.Dataset, meta: Meta):
             coords["gain"] = "rho", np.array(meta.gains)
         ds["time"] = ds["time"] - ds["time"][0]
         ds = ds.assign(phase=ds["phase"].assign_attrs(units="radian" if meta.is_radian else "deg"))
+    elif isinstance(meta, DCSMeta):
+        start, end = ds["time"][0], ds["time"][-1]
+        dt_dur = np.round((end - start) / np.timedelta64(1, "s")).astype("timedelta64[s]")
+        coords.update(
+            dcs_start_time=start,
+            dcs_end_time=end,
+            duration=meta.duration if meta.duration is not None else dt_dur,
+            rho=("channel", np.array(meta.dcs_distances), dict(units="cm")),
+        )
+        if meta.dcs_hz is not None:
+            coords["frequency"] = (), np.array(meta.dcs_hz), dict(units="Hz")
+        if meta.dcs_wavelength is not None:
+            coords["wavelength"] = (), np.array(meta.dcs_wavelength), dict(units="nm")
+        ds["time"] = ds["time"] - ds["time"][0]
     elif isinstance(meta, FastrakMeta):
         position = ds["position"]
         if not meta.is_cm:
@@ -130,18 +146,24 @@ def add_meta_coords(ds: xr.Dataset, meta: Meta):
     return ds.assign_coords(coords)
 
 
-def _scalar_dtype(pa_type: pa.DataType):
-    if hasattr(pa_type, "value_type"):
-        return _scalar_dtype(pa_type.value_type)
-    return pa_type.to_pandas_dtype()
+def _chunked_shape(array: np.ndarray):
+    if array.dtype.kind != "O":
+        return array.shape
+    return (*array.shape, *_chunked_shape(array[0]))
+
+
+def _chunked_conc(array: np.ndarray):
+    if array.dtype.kind != "O":
+        return array
+    return _chunked_conc(np.concatenate(array, axis=None))
 
 
 def _from_chunked_array(carray: pa.ChunkedArray) -> np.ndarray:
-    return (
-        np.array(carray.to_pylist(), dtype=_scalar_dtype(carray.type))
-        if pa.types.is_nested(carray.type)
-        else carray.to_numpy()
-    )
+    array = carray.to_numpy()
+    if not pa.types.is_nested(carray.type):
+        return array
+    shape = _chunked_shape(array)
+    return _chunked_conc(array).reshape(shape)
 
 
 def _unique_squeezed_attr_or_drop(da: xr.DataArray):
@@ -174,6 +196,26 @@ def nirs_ds_from_table(table: pa.Table):
                 aux=(("time", "rho"), _from_chunked_array(table["aux"])),
             ),
             coords=dict(time=("time", _time_from_table(table))),
+        )
+        .transpose(..., "time")
+        .sortby("time")
+    )
+
+
+def dcs_ds_from_table(table: pa.Table):
+    tau = _from_chunked_array(table["t"])
+    # assert np.unique(tau, axis=0).shape[0] == 1
+    return (
+        xr.Dataset(
+            data_vars=dict(
+                counts=(("time", "channel"), _from_chunked_array(table["CPS"]), dict(units="Hz")),
+                # t=(("time", "tau"), tau),
+                value=(("time", "tau", "channel"), _from_chunked_array(table["t_val"])),
+            ),
+            coords=dict(
+                time=("time", _time_from_table(table)),
+                tau=("tau", tau[0]),
+            ),
         )
         .transpose(..., "time")
         .sortby("time")
@@ -268,4 +310,4 @@ def vent_ds_from_table(table: pa.Table):
 
 
 def vent_n_ds_from_table(table: pa.Table):
-    return id_val_ds_from_table(table, units="unit")
+    return id_val_ds_from_table(table)

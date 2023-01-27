@@ -5,18 +5,18 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "nirscloud_julia"
 authors = [{name = "Julia Tatz", email = "julia.tatz@childrens.harvard.edu"}]
-requires-python = ">=3.7.1"
+requires-python = ">=3.8"
 dynamic = ["version"]
 dependencies = [
     "typing_extensions>=4.3.0",
-    "numpy~=1.21",
+    "numpy~=1.23",
     "xarray>=0.19",
     "pymongo>=3.0",
     "pandas~=1.2",
     "zarr>=2.8",
     "httpx[http2]",
     "httpx_gssapi~=0.1.7",
-    "pyarrow>=4",
+    "pyarrow>=10",
 ]
 
 [tool.black]

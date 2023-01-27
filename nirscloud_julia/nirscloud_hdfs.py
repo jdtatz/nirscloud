@@ -1,12 +1,12 @@
 import asyncio
 import os
-from io import BytesIO
 from pathlib import PurePosixPath
 from typing import Optional
 
 import httpx
 import pyarrow as pa
 import pyarrow.parquet as pq
+import pyarrow.dataset as pds
 
 from .nirscloud_mongo import Meta
 from .webhdfs import WebHDFS, async_walk, sync_walk
@@ -30,6 +30,8 @@ PM_N_KAFKA_TOPICS = "ixtrend_numerics2_s", "ixtrend_numerics_s", "ixtrend_numeri
 
 HDFS_NAMESERVICE = "BabyNIRSHDFS"
 HDFS_PREFIX_DEDUP = PurePosixPath("/nirscloud/dedup")
+HDFS_PREFIX_AGG_HR = PurePosixPath("/nirscloud/agg_by_hr")
+HDFS_PREFIX_AGG_DAY = PurePosixPath("/nirscloud/agg_by_day")
 HDFS_PREFIX_AGG = PurePosixPath("/nirscloud/agg")
 HDFS_PREFIX_AGG_HR = PurePosixPath("/nirscloud/agg_by_hr")
 HDFS_PREFIX_AGG_DAY = PurePosixPath("/nirscloud/agg_by_day")
@@ -156,10 +158,50 @@ def create_async_webhdfs_client(
     return WebHDFS(session, *hdfs_masters, port=HDFS_HTTPS_PORT)
 
 
-def read_table_from_meta(client: WebHDFS[httpx.Client], meta: Meta, *hdfs_prefix_options: PurePosixPath) -> pa.Table:
-    def read_table(path: PurePosixPath) -> pa.Table:
-        return pq.read_table(BytesIO(client.open(path)))
+_parquet_format = pds.ParquetFileFormat()
 
+
+def _sync_read_fragment(client: WebHDFS[httpx.Client], path: PurePosixPath) -> pds.FileFragment:
+    return _parquet_format.make_fragment(pa.BufferReader(client.open(path)))
+
+
+async def _async_read_fragment(client: WebHDFS[httpx.AsyncClient], path: PurePosixPath) -> pds.FileFragment:
+    return _parquet_format.make_fragment(pa.BufferReader(await client.open(path)))
+
+
+def sync_read_fragments(client: WebHDFS[httpx.Client], dir_path: PurePosixPath) -> pds.Dataset:
+    fragments = (
+        _sync_read_fragment(client, PurePosixPath(path) / file)
+        for path, _, files in sync_walk(client, dir_path)
+        for file in files
+        if file.endswith(".parquet")
+    )
+    return pds.FileSystemDataset(fragments, schema=fragments[0].physical_schema, format=_parquet_format)
+
+
+async def async_read_fragments(client: WebHDFS[httpx.AsyncClient], dir_path: PurePosixPath) -> pds.Dataset:
+    tree = await async_walk(client, dir_path)
+    fragments = await asyncio.gather(
+        *(
+            _async_read_fragment(client, PurePosixPath(path) / file)
+            for path, _, files in tree
+            for file in files
+            if file.endswith(".parquet")
+        )
+    )
+    return pds.FileSystemDataset(fragments, schema=fragments[0].physical_schema, format=_parquet_format)
+
+
+def read_table_from_parts(client: WebHDFS[httpx.Client], dir_path: PurePosixPath) -> pa.Table:
+    status = client.status(dir_path)
+    if status is None:
+        raise FileNotFoundError
+    if status["FileStatus"]["type"] == "FILE":
+        return _sync_read_fragment(client, dir_path).to_table()
+    return sync_read_fragments(client, dir_path).to_table()
+
+
+def read_table_from_meta(client: WebHDFS[httpx.Client], meta: Meta, *hdfs_prefix_options: PurePosixPath) -> pa.Table:
     for hdfs_prefix in hdfs_prefix_options:
         status = client.status(hdfs_prefix / meta.hdfs)
         if status is not None:
@@ -168,22 +210,22 @@ def read_table_from_meta(client: WebHDFS[httpx.Client], meta: Meta, *hdfs_prefix
         raise FileNotFoundError
     full_path = hdfs_prefix / meta.hdfs
     if status["FileStatus"]["type"] == "FILE":
-        return read_table(full_path)
-    tables = (
-        read_table(PurePosixPath(path) / file)
-        for path, _, files in sync_walk(client, full_path)
-        for file in files
-        if file.endswith(".parquet")
-    )
-    return pa.concat_tables(tables)
+        return _sync_read_fragment(client, full_path).to_table()
+    return sync_read_fragments(client, full_path).to_table()
+
+
+async def async_read_table_from_parts(client: WebHDFS[httpx.AsyncClient], dir_path: PurePosixPath) -> pa.Table:
+    status = await client.status(dir_path)
+    if status is None:
+        raise FileNotFoundError
+    if status["FileStatus"]["type"] == "FILE":
+        return (await _async_read_fragment(client, dir_path)).to_table()
+    return (await async_read_fragments(client, dir_path)).to_table()
 
 
 async def async_read_table_from_meta(
     client: WebHDFS[httpx.AsyncClient], meta: Meta, *hdfs_prefix_options: PurePosixPath
 ) -> pa.Table:
-    async def read_data(path: PurePosixPath) -> pa.Table:
-        return pq.read_table(BytesIO(await client.open(path)))
-
     for hdfs_prefix in hdfs_prefix_options:
         status = await client.status(hdfs_prefix / meta.hdfs)
         if status is not None:
@@ -192,14 +234,5 @@ async def async_read_table_from_meta(
         raise FileNotFoundError
     full_path = hdfs_prefix / meta.hdfs
     if status["FileStatus"]["type"] == "FILE":
-        return await read_data(full_path)
-    tree = await async_walk(client, full_path)
-    tables = await asyncio.gather(
-        *(
-            read_data(PurePosixPath(path) / file)
-            for path, _, files in tree
-            for file in files
-            if file.endswith(".parquet")
-        )
-    )
-    return pa.concat_tables(tables)
+        return (await _async_read_fragment(client, full_path)).to_table()
+    return (await async_read_fragments(client, full_path)).to_table()

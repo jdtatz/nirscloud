@@ -72,6 +72,7 @@ class MongoMetaBase:
     _database_name: ClassVar[str]
     _collection_name: ClassVar[str]
     _default_query: "ClassVar[dict[str, Any]]"
+    _kafka_topics: "ClassVar[list[str]]"
     _extra: "dict[str, Any]"
     # _extra: "dict[str, Any]" = field(init=False, default_factory=dict)
 
@@ -80,6 +81,7 @@ class MongoMetaBase:
         database_name: str,
         collection_name: Optional[str] = None,
         default_query: "Optional[dict[str, Any]]" = None,
+        kafka_topics: "Optional[list[str]]" = None,
         *args,
         init: bool = True,
         frozen: bool = False,
@@ -90,6 +92,7 @@ class MongoMetaBase:
         cls._database_name = database_name
         cls._collection_name = f"{database_name}3" if collection_name is None else collection_name
         cls._default_query = dict() if default_query is None else default_query
+        cls._kafka_topics = [] if kafka_topics is None else kafka_topics
         super().__init_subclass__(*args, **kwargs)
         dataclass(cls, init=init, frozen=frozen, eq=eq, order=order)
 
@@ -130,6 +133,10 @@ class MongoMetaBase:
         obj = cls(**{**qdefaults, **qfields})
         obj._extra = extra
         return obj
+    
+    @property
+    def kafka_topics(self) -> "list[str]":
+        return self._kafka_topics
 
 
 class Meta(MongoMetaBase, database_name="meta"):
@@ -166,7 +173,12 @@ class Meta(MongoMetaBase, database_name="meta"):
 #     yaml_filepath: Optional[PurePosixPath] = query_field("yaml_filename", PurePosixPath, default=None)
 
 
-class FastrakMeta(Meta, database_name="meta", default_query={"n_fastrak_dedup.val": {"$exists": True}}):
+class FastrakMeta(
+    Meta,
+    database_name="meta",
+    default_query={"n_fastrak_dedup.val": {"$exists": True}},
+    kafka_topics=["fastrak_cm_s", "fastrak2_s"],
+):
     is_cm: bool = query_field("is_fastrak_cm", bool, default=False)
 
 
@@ -204,6 +216,7 @@ class NIRSMeta(
         "n_nirs_dedup.val": {"$exists": True},
         "isValid.val": {"$ne": False},
     },
+    kafka_topics=["metaox_nirs_rs", "metaox_nirs_s"],
 ):
     pass
 
@@ -215,11 +228,17 @@ class DCSMeta(
         "n_dcs_dedup.val": {"$exists": True},
         "isValid.val": {"$ne": False},
     },
+    kafka_topics=["metaox_dcs_s"],
 ):
     pass
 
 
-class FinapresMeta(Meta, database_name="meta", default_query={"n_waveform_dedup.val": {"$exists": True}}):
+class FinapresMeta(
+    Meta, 
+    database_name="meta", 
+    default_query={"n_waveform_dedup.val": {"$exists": True}},
+    kafka_topics=["finapres_waveform_su", "finapres_waveform2_s", "finapres_waveform_s"],
+):
     # device_id
     pass
 
@@ -228,6 +247,24 @@ class PatientMonitorMeta(
     Meta,
     database_name="meta",
     default_query={"n_waves_dedup.val": {"$exists": True}, "n_numerics_dedup.val": {"$exists": True}},
+):
+    pass
+
+
+class PatientMonitorWavesMeta(
+    Meta,
+    database_name="meta",
+    default_query={"n_waves_dedup.val": {"$exists": True}},
+    kafka_topics=["ixtrend_waves5_s", "ixtrend_waves4_s", "ixtrend_waves3_s", "ixtrend_waves2_s", "ixtrend_waves"],
+):
+    pass
+
+
+class PatientMonitorNumericsMeta(
+    Meta,
+    database_name="meta",
+    default_query={"n_numerics_dedup.val": {"$exists": True}},
+    kafka_topics=["ixtrend_numerics2_s", "ixtrend_numerics_s", "ixtrend_numerics"],
 ):
     pass
 
@@ -260,12 +297,25 @@ class VentMeta(MongoMetaBase, database_name="meta_by_bed"):
             p = p / f"_hr={self.hour}"
         return p
 
-class VentWaveMeta(VentMeta, database_name="meta_by_bed", default_query={"the_topic.val": "bch_vent_waves2_s"}):
+    @property
+    def kafka_topics(self) -> "list[str]":
+        return [self.topic, *super().kafka_topics]
+
+
+class VentWaveMeta(
+    VentMeta,
+    database_name="meta_by_bed",
+    default_query={"the_topic.val": {"$regex": "bch_vent_waves.*"}},
+    kafka_topics=["bch_vent_waves2_s"],
+):
     pass
 
 
 class VentNumericMeta(
-    VentMeta, database_name="meta_by_bed_day", default_query={"the_topic.val": "bch_vent_numerics2_s"}
+    VentMeta,
+    database_name="meta_by_bed_day",
+    default_query={"the_topic.val": {"$regex": "bch_vent_numerics.*"}},
+    kafka_topics=["bch_vent_numerics2_s"],
 ):
     pass
 
@@ -274,6 +324,7 @@ class NkWaveMeta(
     VentMeta,
     database_name="meta_by_bed",
     default_query={"the_topic.val": {"$regex": "nk_waves.*"}},
+    kafka_topics=["nk_waves_NICU"],
 ):
     pass
 

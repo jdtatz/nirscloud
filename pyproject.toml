@@ -11,7 +11,7 @@ dependencies = [
     "typing_extensions>=4.3.0",
     "numpy~=1.23",
     "xarray>=0.19",
-    "pymongo>=3.0",
+    "pymongo>=3.12",
     "pandas~=1.2",
     "zarr>=2.8",
     "httpx[http2]",

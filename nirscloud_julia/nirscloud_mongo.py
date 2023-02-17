@@ -320,11 +320,38 @@ class VentNumericMeta(
     pass
 
 
+class VentSettingsMeta(
+    VentMeta,
+    database_name="meta_by_bed_day",
+    default_query={"the_topic.val": {"$regex": "bch_vent_settings.*"}},
+    kafka_topics=["bch_vent_settings2_s"],
+):
+    pass
+
+
+class VentAlarmsMeta(
+    VentMeta,
+    database_name="meta_by_bed_day",
+    default_query={"the_topic.val": {"$regex": "bch_vent_alarms.*"}},
+    kafka_topics=["bch_vent_alarms2_s"],
+):
+    pass
+
+
 class NkWaveMeta(
     VentMeta,
     database_name="meta_by_bed",
     default_query={"the_topic.val": {"$regex": "nk_waves.*"}},
     kafka_topics=["nk_waves_NICU"],
+):
+    pass
+
+
+class NkAlertMeta(
+    VentMeta,
+    database_name="meta_by_bed",
+    default_query={"the_topic.val": {"$regex": "nk_alert.*"}},
+    kafka_topics=["nk_alert_NICU_2"],
 ):
     pass
 
@@ -336,11 +363,8 @@ create_mongo_client = partial(
     ssl=True,
     authSource="$external",
     authMechanism="MONGODB-X509",
-    # Changed in version 3.12: ssl_certfile and ssl_keyfile were deprecated in favor of tlsCertificateKeyFile.
-    ssl_certfile="/etc/mongo/jhub-keypem.pem",
-    ssl_ca_certs="/etc/mongo/root-ca.pem",
-    # tlsCertificateKeyFile="/etc/mongo/jhub-keypem.pem",
-    # tlsCAFile="/etc/mongo/root-ca.pem",
+    tlsCertificateKeyFile="/etc/mongo/jhub-keypem.pem",
+    tlsCAFile="/etc/mongo/root-ca.pem",
 )
 
 META_DATABASE_KEY: str = "meta"

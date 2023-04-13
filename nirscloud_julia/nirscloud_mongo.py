@@ -356,6 +356,36 @@ class NkAlertMeta(
     pass
 
 
+def _empty_none(s: str) -> Optional[str]:
+    return s if s else None
+
+
+class RedcapDefnMeta(MongoMetaBase, database_name="cchu_redcap2_metadata"):
+    mongo: ObjectId = query_field("_id")
+    meta: str = query_field("meta_id")
+    logic: Optional[str] = query_field("branching_logic", _empty_none)
+    alignment: Optional[Literal["LH", "LV", "RH", "RV"]] = query_field("custom_alignment", _empty_none)
+    label: Optional[str] = query_field("field_label", default=None)
+    name: Optional[str] = query_field("field_name", _empty_none)
+    note: Optional[str] = query_field("field_note", _empty_none)
+    annotation: Optional[str] = query_field("field_annotation", _empty_none)
+    ty: str = query_field("field_type")
+    form: str = query_field("form_name")
+    identifier: Optional[str] = query_field("identifier", _empty_none)
+    matrix_group_name: Optional[str] = query_field("matrix_group_name", _empty_none)
+    matrix_ranking: Optional[str] = query_field("matrix_ranking", _empty_none)
+    question_number: Optional[str] = query_field("question_number", _empty_none)
+    required_field: Optional[Literal["y"]] = query_field("required_field", _empty_none)
+    section_header: Optional[str] = query_field("section_header", _empty_none)
+    select_choices_or_calculations: Optional[str] = query_field("select_choices_or_calculations", _empty_none)
+    study: str = query_field("study-id")
+    text_validation_max: Optional[str] = query_field("text_validation_max", _empty_none)
+    text_validation_min: Optional[str] = query_field("text_validation_min", _empty_none)
+    text_validation_type_or_show_slider_number: Optional[str] = query_field(
+        "text_validation_type_or_show_slider_number", _empty_none
+    )
+
+
 create_mongo_client = partial(
     pymongo.MongoClient,
     host="mongos.mongo.svc.cluster.local",

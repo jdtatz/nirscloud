@@ -39,6 +39,7 @@ from .nirscloud_mongo import (
     NIRSMeta,
     NkWaveMeta,
     PatientMonitorMeta,
+    RedcapDefnMeta,
     VentMeta,
     VentNumericMeta,
     VentWaveMeta,
@@ -55,4 +56,5 @@ from .nirscloud_mongo import (
     query_vent_n_meta,
     query_vent_waves_meta,
 )
+from .nirscloud_redcap import RedcapEntryMeta, create_redcap_cls_module
 from .webhdfs import HDFSRemoteException, WebHDFS, async_walk, sync_walk

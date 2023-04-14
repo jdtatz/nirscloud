@@ -1,8 +1,10 @@
 import ast
 import dataclasses
+import importlib.abc
 import importlib.util
 import re
 from functools import reduce
+from pathlib import Path
 from typing import Iterator, Optional
 
 import numpy as np
@@ -14,6 +16,12 @@ from .nirscloud_mongo import MongoMetaBase, RedcapDefnMeta, query_field
 _SUBJ_ID_SPLIT = re.compile(r"([_a-zA-Z]+)\s*(\d+)")
 _REDCAP_NUM_REGEX = re.compile(r"[-+]?(\d+([.,]\d*)?|[.,]\d+)([eE][-+]?\d+)?")
 NAN = float("nan")
+REDCAP_TEXT_TO_NUM_FIXES = {
+    "": NAN,
+    ".13.2": 13.2,
+    "7,2": 7.2,
+    "4.;0": 4.0,
+}
 
 
 class RedcapEntryMeta(MongoMetaBase, database_name="cchu_redcap2"):
@@ -50,12 +58,9 @@ def _convert_redcap_calc(value: str) -> Optional[float]:
 
 
 def _convert_redcap_text_num(value: str) -> float:
-    if value == "":
-        return NAN
-    elif value == ".13.2":
-        return 13.2
-    elif value == "7,2":
-        return 7.2
+    global REDCAP_TEXT_TO_NUM_FIXES
+    if value in REDCAP_TEXT_TO_NUM_FIXES:
+        return REDCAP_TEXT_TO_NUM_FIXES[value]
     matches = [m.group() for m in _REDCAP_NUM_REGEX.finditer(value)]
     if len(matches) > 1:
         raise ValueError(f"More than one number found in {value!r}")
@@ -80,6 +85,19 @@ def _convert_redcap_text_time(value: str) -> np.timedelta64:
         return (np.timedelta64(hh, "h") + np.timedelta64(mm, "m")).astype("timedelta64[ns]")
 
 
+def _gen_redcap_imports():
+    return [
+        ast.ImportFrom("typing", [ast.alias("Optional")], level=0),
+        ast.ImportFrom("typing_extensions", [ast.alias("Literal")], level=0),
+        ast.ImportFrom("numpy", [ast.alias("datetime64"), ast.alias("timedelta64")], level=0),
+        ast.ImportFrom(
+            None,
+            [ast.alias("RedcapEntryMeta"), ast.alias("query_field"), ast.alias("REDCAP_TEXT_TO_NUM_FIXES")],
+            level=1,
+        ),
+    ]
+
+
 def _gen_redcap_cls_body(form_fields: "list[RedcapDefnMeta]") -> Iterator[ast.AnnAssign]:
     for f in form_fields:
         kwargs = {}
@@ -88,10 +106,10 @@ def _gen_redcap_cls_body(form_fields: "list[RedcapDefnMeta]") -> Iterator[ast.An
                 ty = ast.Name("float", ctx=ast.Load())
                 kwargs["converter"] = ast.Name("_convert_redcap_text_num", ctx=ast.Load())
             elif f.text_validation_type_or_show_slider_number == "date_dmy":
-                ty = ast.Attribute(ast.Name("np", ctx=ast.Load()), "datetime64", ctx=ast.Load())
+                ty = ast.Name("datetime64", ctx=ast.Load())
                 kwargs["converter"] = ast.Name("_convert_redcap_text_date", ctx=ast.Load())
             elif f.text_validation_type_or_show_slider_number == "time":
-                ty = ast.Attribute(ast.Name("np", ctx=ast.Load()), "timedelta64", ctx=ast.Load())
+                ty = ast.Name("timedelta64", ctx=ast.Load())
                 kwargs["converter"] = ast.Name("_convert_redcap_text_time", ctx=ast.Load())
             elif f.text_validation_type_or_show_slider_number is None:
                 ty = ast.Name("str", ctx=ast.Load())
@@ -131,7 +149,15 @@ def _gen_redcap_cls_body(form_fields: "list[RedcapDefnMeta]") -> Iterator[ast.An
         )
 
 
-def create_redcap_cls_module(form_field_defns: "list[RedcapDefnMeta]", form_cls_map, *, return_src: bool = False):
+class _AstLoader(importlib.abc.InspectLoader):
+    def __init__(self, module_ast: ast.Module):
+        self.module_ast = module_ast
+
+    def get_source(self, fullname):
+        return ast.unparse(self.module_ast)
+
+
+def create_redcap_cls_module(form_field_defns: "list[RedcapDefnMeta]", form_cls_map):
     form_defns = reduce(lambda grp, f: grp.setdefault(f.form, []).append(f) or grp, form_field_defns, {})
     redcap_clss = [
         ast.ClassDef(
@@ -149,12 +175,25 @@ def create_redcap_cls_module(form_field_defns: "list[RedcapDefnMeta]", form_cls_
         )
         for form_name, cls_name in form_cls_map.items()
     ]
-    redcap_clss_mod = ast.Module(body=redcap_clss, type_ignores=[])
-    code = compile(ast.fix_missing_locations(redcap_clss_mod), "<string>", "exec")
-    spec = importlib.util.spec_from_loader("redcap", loader=None)
+    redcap_clss_mod = ast.fix_missing_locations(
+        ast.Module(body=[*_gen_redcap_imports(), *redcap_clss], type_ignores=[])
+    )
+    # runtime generated code is supposed to use filenames in the form of "<something>"
+    unique_fpath = f"<generated from 0x{id(form_field_defns):x}>"
+    # FIXME: `linecache` doesn't allow filenames in the form of "<something>", `doctest` monkeypatches `linecache` module to enable inspection.
+    unique_fpath = str(Path(__file__).parent / unique_fpath)
+    spec = importlib.util.spec_from_loader(
+        f"{__name__}.redcap", loader=_AstLoader(redcap_clss_mod), origin=unique_fpath
+    )
+    spec.has_location = True
     redcap = importlib.util.module_from_spec(spec)
-    exec(code, None, redcap.__dict__)
-    if return_src:
-        return redcap, ast.unparse(redcap_clss_mod)
-    else:
-        return redcap
+    redcap.__dict__.update(
+        _convert_redcap_yesno=_convert_redcap_yesno,
+        _convert_redcap_no_empty=_convert_redcap_no_empty,
+        _convert_redcap_calc=_convert_redcap_calc,
+        _convert_redcap_text_num=_convert_redcap_text_num,
+        _convert_redcap_text_date=_convert_redcap_text_date,
+        _convert_redcap_text_time=_convert_redcap_text_time,
+    )
+    spec.loader.exec_module(redcap)
+    return redcap

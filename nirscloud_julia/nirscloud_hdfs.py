@@ -161,11 +161,11 @@ def create_async_webhdfs_client(
 _parquet_format = pds.ParquetFileFormat()
 
 
-def _sync_read_fragment(client: WebHDFS[httpx.Client], path: PurePosixPath) -> pds.FileFragment:
+def _sync_read_fragment(client: WebHDFS[httpx.Client], path: PurePosixPath) -> pds.Fragment:
     return _parquet_format.make_fragment(pa.BufferReader(client.open(path)))
 
 
-async def _async_read_fragment(client: WebHDFS[httpx.AsyncClient], path: PurePosixPath) -> pds.FileFragment:
+async def _async_read_fragment(client: WebHDFS[httpx.AsyncClient], path: PurePosixPath) -> pds.Fragment:
     return _parquet_format.make_fragment(pa.BufferReader(await client.open(path)))
 
 

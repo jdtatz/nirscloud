@@ -16,7 +16,7 @@ dependencies = [
     "zarr>=2.8",
     "httpx[http2]",
     "httpx_gssapi~=0.1.7",
-    "pyarrow>=10",
+    "pyarrow>=12",
 ]
 
 [tool.black]

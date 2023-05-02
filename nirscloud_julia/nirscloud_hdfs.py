@@ -5,8 +5,8 @@ from typing import Optional
 
 import httpx
 import pyarrow as pa
-import pyarrow.parquet as pq
 import pyarrow.dataset as pds
+import pyarrow.parquet as pq
 
 from .nirscloud_mongo import Meta
 from .webhdfs import WebHDFS, async_walk, sync_walk
@@ -170,12 +170,12 @@ async def _async_read_fragment(client: WebHDFS[httpx.AsyncClient], path: PurePos
 
 
 def sync_read_fragments(client: WebHDFS[httpx.Client], dir_path: PurePosixPath) -> pds.Dataset:
-    fragments = (
+    fragments = [
         _sync_read_fragment(client, PurePosixPath(path) / file)
         for path, _, files in sync_walk(client, dir_path)
         for file in files
         if file.endswith(".parquet")
-    )
+    ]
     return pds.FileSystemDataset(fragments, schema=fragments[0].physical_schema, format=_parquet_format)
 
 

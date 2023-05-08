@@ -1,18 +1,46 @@
 import asyncio
+from dataclasses import dataclass, field
+from functools import partialmethod, singledispatch
+from inspect import isawaitable
 from itertools import chain
 from pathlib import PurePosixPath
-from typing import Any, Callable, Dict, Generic, List, Optional, Tuple, TypeVar, Union
+from types import MethodType
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Generic,
+    List,
+    Optional,
+    Tuple,
+    TypeVar,
+    Union,
+    cast,
+)
 
 from httpx import (
     URL,
     AsyncClient,
     Client,
+    HTTPStatusError,
     NetworkError,
     Request,
+    RequestError,
     Response,
     TimeoutException,
 )
-from typing_extensions import Awaitable, Literal, LiteralString, overload
+from httpx._client import BaseClient
+from typing_extensions import (
+    Awaitable,
+    Concatenate,
+    Literal,
+    LiteralString,
+    NotRequired,
+    ParamSpec,
+    TypedDict,
+    Unpack,
+    overload,
+)
 
 from .webhdfs_schemas import FileStatus, FileStatuses, RemoteException
 
@@ -20,7 +48,7 @@ from .webhdfs_schemas import FileStatus, FileStatuses, RemoteException
 
 
 T = TypeVar("T")
-R = TypeVar("R")
+R = TypeVar("R", covariant=True)
 
 # C = TypeVar("C", bound=BaseClient)
 # C = TypeVar("C", bound=Union[Client, AsyncClient])
@@ -56,11 +84,25 @@ def _handle_response(response: Response) -> Optional[Response]:
         raise HDFSRemoteException(remote_error)
     else:
         response.raise_for_status()
-        assert False
+        raise AssertionError("Expected code to be unreachable")
 
 
+class SendKwargs(TypedDict):
+    stream: NotRequired[bool]
+    # auth: NotRequired[Any]
+    follow_redirects: NotRequired[bool]
+
+
+@singledispatch
+def _failover_send(
+    client: BaseClient, request: Request, *failover_requests: Request, **send_kwargs: Unpack[SendKwargs]
+):
+    raise NotImplementedError
+
+
+@_failover_send.register
 def _sync_failover_send(
-    client: Client, request: Request, *failover_requests: Request, **send_kwargs
+    client: Client, request: Request, *failover_requests: Request, **send_kwargs: Unpack[SendKwargs]
 ) -> Optional[Response]:
     try:
         return _handle_response(client.send(request, **send_kwargs))
@@ -73,8 +115,9 @@ def _sync_failover_send(
     return _sync_failover_send(client, *failover_requests, **send_kwargs)
 
 
+@_failover_send.register
 async def _async_failover_send(
-    client: AsyncClient, request: Request, *failover_requests: Request, **send_kwargs
+    client: AsyncClient, request: Request, *failover_requests: Request, **send_kwargs: Unpack[SendKwargs]
 ) -> Optional[Response]:
     try:
         return _handle_response(await client.send(request, **send_kwargs))
@@ -93,7 +136,7 @@ def _failover_send_and_map(
     handle: Callable[[Optional[Response]], R],
     request: Request,
     *failover_requests: Request,
-    **send_kwargs,
+    **send_kwargs: Unpack[SendKwargs],
 ) -> R:
     ...
 
@@ -104,18 +147,23 @@ def _failover_send_and_map(
     handle: Callable[[Optional[Response]], R],
     request: Request,
     *failover_requests: Request,
-    **send_kwargs,
+    **send_kwargs: Unpack[SendKwargs],
 ) -> Awaitable[R]:
     ...
 
 
 def _failover_send_and_map(
-    client: C, handle: Callable[[Optional[Response]], R], request: Request, *failover_requests: Request, **send_kwargs
+    client: C,
+    handle: Callable[[Optional[Response]], R],
+    request: Request,
+    *failover_requests: Request,
+    **send_kwargs: Unpack[SendKwargs],
 ) -> Union[R, Awaitable[R]]:
-    if isinstance(client, AsyncClient):
-        return _async_map(handle, _async_failover_send(client, request, *failover_requests, **send_kwargs))
+    r = _failover_send(client, request, *failover_requests, **send_kwargs)
+    if isawaitable(r):
+        return _async_map(handle, r)
     else:
-        return handle(_sync_failover_send(client, request, *failover_requests, **send_kwargs))
+        return handle(r)
 
 
 def _handle_open_response(response: Optional[Response]) -> bytes:
@@ -132,6 +180,62 @@ def _handle_json_response(response: Optional[Response]):
 
 def _handle_file_status_response(response: Optional[Response]) -> Optional[FileStatus]:
     return None if response is None else response.json()
+
+
+BuildRequestParams = ParamSpec("BuildRequestParams")
+# # bind only the kwargs to `BuildRequestParams`
+# _helper: Callable[BuildRequestParams, Request] = partial(BaseClient().build_request, "GET", "127.0.0.1")
+
+
+class BuildRequestKwargs(TypedDict):
+    content: NotRequired[Union[str, bytes]]
+    json: NotRequired[Any]
+    timeout: NotRequired[float]
+
+
+@dataclass
+class WebHDFSOperation(Generic[R]):
+    handle: Callable[[Optional[Response]], R]
+    method: Literal["GET", "PUT", "POST", "DELETE"]
+    operation: LiteralString
+    params: Dict[str, Any] = field(default_factory=dict)
+    # FIXME: mypy doesn't understand that a `TypedDict` subclass can be used as a type constructer
+    # send_kwargs: SendKwargs = field(default_factory=SendKwargs)
+    send_kwargs: SendKwargs = field(default_factory=lambda: SendKwargs())
+
+    @overload
+    def __call__(
+        self, wrapped: "WebHDFS[Client]", path: PurePosixPath, **build_request_kwargs: Unpack[BuildRequestKwargs]
+    ) -> R:
+        ...
+
+    @overload
+    def __call__(
+        self, wrapped: "WebHDFS[AsyncClient]", path: PurePosixPath, **build_request_kwargs: Unpack[BuildRequestKwargs]
+    ) -> Awaitable[R]:
+        ...
+
+    def __call__(self, wrapped: "WebHDFS[C]", path: PurePosixPath, **build_request_kwargs: Unpack[BuildRequestKwargs]):
+        requests = wrapped._build_requests(self.method, self.operation, path, self.params, build_request_kwargs)
+        return _failover_send_and_map(wrapped.client, self.handle, *requests, **self.send_kwargs)
+
+    # FIXME: can't add kwargs typing to `Callable`
+    @overload
+    def __get__(
+        self, instance: "WebHDFS[Client]", owner=None
+    ) -> Callable[Concatenate[PurePosixPath, BuildRequestParams], R]:
+        ...
+
+    @overload
+    def __get__(
+        self, instance: "WebHDFS[AsyncClient]", owner=None
+    ) -> Callable[Concatenate[PurePosixPath, BuildRequestParams], Awaitable[R]]:
+        ...
+
+    def __get__(self, instance, owner=None):
+        if instance is None:
+            return self
+        return MethodType(self, instance)
 
 
 class WebHDFS(Generic[C]):
@@ -152,86 +256,46 @@ class WebHDFS(Generic[C]):
         if port is not None:
             self._base_urls = [url.copy_with(port=port) for url in self._base_urls]
 
-    # FIXME remove overloads in WebHDFS when type infrence for `_failover_send_and_map` finally works
-    @overload
-    def _operation(
-        self: "WebHDFS[Client]",
-        handle: Callable[[Optional[Response]], R],
-        method: Literal["GET", "PUT", "POST", "DELETE"],
-        operation: LiteralString,
-        path: PurePosixPath,
-        params: Optional[Dict[str, Any]] = None,
-        send_kwargs: Optional[Dict[str, Any]] = None,
-        **extras,
-    ) -> R:
-        ...
-
-    @overload
-    def _operation(
-        self: "WebHDFS[AsyncClient]",
-        handle: Callable[[Optional[Response]], R],
-        method: Literal["GET", "PUT", "POST", "DELETE"],
-        operation: LiteralString,
-        path: PurePosixPath,
-        params: Optional[Dict[str, Any]] = None,
-        send_kwargs: Optional[Dict[str, Any]] = None,
-        **extras,
-    ) -> Awaitable[R]:
-        ...
-
-    def _operation(
+    def _build_requests(
         self,
-        handle: Callable[[Optional[Response]], R],
         method: Literal["GET", "PUT", "POST", "DELETE"],
         operation: LiteralString,
         path: PurePosixPath,
-        params: Optional[Dict[str, Any]] = None,
-        send_kwargs: Optional[Dict[str, Any]] = None,
-        **extras,
-    ) -> Union[R, Awaitable[R]]:
+        params: Dict[str, Any],
+        build_request_kwargs: BuildRequestKwargs,
+    ) -> List[Request]:
         if path.is_absolute():
             path = path.relative_to(path.root)
         requests = [
             self.client.build_request(
-                method, base_url.join(str(path)), params={"op": operation, **(params or {})}, **extras
+                method, base_url.join(str(path)), params={"op": operation, **params}, **build_request_kwargs
             )
             for base_url in self._base_urls
         ]
-        return _failover_send_and_map(self.client, handle, *requests, **(send_kwargs or {}))
+        return requests
 
-    @overload
-    def open(self: "WebHDFS[Client]", path: PurePosixPath) -> bytes:
-        ...
+    # # TODO: Use once `partial`/`partialmethod` typing is fixed, see https://github.com/python/mypy/issues/1484
+    # def _operation(
+    #     self,
+    #     handle: Callable[[Optional[Response]], R],
+    #     method: Literal["GET", "PUT", "POST", "DELETE"],
+    #     operation: LiteralString,
+    #     path: PurePosixPath,
+    #     params: Optional[Dict[str, Any]] = None,
+    #     send_kwargs: Optional[SendKwargs] = None,
+    #     **build_request_kwargs: Unpack[BuildRequestKwargs],
+    # ): # -> Union[R, Awaitable[R]]:
+    #     requests = self._build_requests(method, operation, path, params or {}, **build_request_kwargs)
+    #     return _failover_send_and_map(self.client, handle, *requests, **(send_kwargs or {}))
+    # open = partialmethod(_operation, _handle_open_response, "GET", "OPEN", send_kwargs=dict(follow_redirects=True))
+    # status = partialmethod(_operation, _handle_file_status_response, "GET", "GETFILESTATUS")
+    # list = partialmethod(_operation, cast(Callable[[Optional[Response]], FileStatuses], _handle_json_response), "GET", "LISTSTATUS")
 
-    @overload
-    def open(self: "WebHDFS[AsyncClient]", path: PurePosixPath) -> Awaitable[bytes]:
-        ...
-
-    def open(self, path: PurePosixPath):
-        return self._operation(_handle_open_response, "GET", "OPEN", path, send_kwargs=dict(follow_redirects=True))
-
-    @overload
-    def status(self: "WebHDFS[Client]", path: PurePosixPath) -> Optional[FileStatus]:
-        ...
-
-    @overload
-    def status(self: "WebHDFS[AsyncClient]", path: PurePosixPath) -> Awaitable[Optional[FileStatus]]:
-        ...
-
-    def status(self, path: PurePosixPath):
-        return self._operation(_handle_file_status_response, "GET", "GETFILESTATUS", path)
-
-    @overload
-    def list(self: "WebHDFS[Client]", path: PurePosixPath) -> FileStatuses:
-        ...
-
-    @overload
-    def list(self: "WebHDFS[AsyncClient]", path: PurePosixPath) -> Awaitable[FileStatuses]:
-        ...
-
-    def list(self, path: PurePosixPath):
-        handle: Callable[[Optional[Response]], FileStatuses] = _handle_json_response
-        return self._operation(handle, "GET", "LISTSTATUS", path)
+    open = WebHDFSOperation(_handle_open_response, "GET", "OPEN", send_kwargs=dict(follow_redirects=True))
+    status = WebHDFSOperation(_handle_file_status_response, "GET", "GETFILESTATUS")
+    list = WebHDFSOperation(
+        cast(Callable[[Optional[Response]], FileStatuses], _handle_json_response), "GET", "LISTSTATUS"
+    )
 
 
 def sync_walk(client: WebHDFS[Client], dirpath: PurePosixPath) -> List[Tuple[PurePosixPath, List[str], List[str]]]:

@@ -23,7 +23,6 @@ from .nirscloud_hdfs import (
     async_read_table_from_meta,
     create_async_webhdfs_client,
     create_webhdfs_client,
-    create_webhfs_client,
     nirscloud_webhdfs_auth,
     read_table_from_meta,
 )

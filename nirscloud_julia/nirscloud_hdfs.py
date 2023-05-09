@@ -124,24 +124,6 @@ def create_webhdfs_client(
     return WebHDFS(session, *hdfs_masters, port=HDFS_HTTPS_PORT)
 
 
-def create_webhfs_client(
-    kerberos_principal=SPARK_KERBEROS_PRINCIPAL,
-    credential_store=dict(keytab=SPARK_KERBEROS_KEYTAB),
-    hdfs_masters=HDFS_MASTERS,
-    *,
-    proxies={},
-    headers={},
-) -> WebHDFS[httpx.Client]:
-    from warnings import warn
-
-    warn(
-        "Call to deprecated function `create_webhfs_client`, use the correctly spelled `create_webhdfs_client`.",
-        category=DeprecationWarning,
-        stacklevel=2,
-    )
-    return create_webhdfs_client(kerberos_principal, credential_store, hdfs_masters, headers=headers)
-
-
 def create_async_webhdfs_client(
     kerberos_principal=SPARK_KERBEROS_PRINCIPAL,
     credential_store=dict(keytab=SPARK_KERBEROS_KEYTAB),

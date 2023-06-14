@@ -311,3 +311,29 @@ def vent_ds_from_table(table: pa.Table):
 
 def vent_n_ds_from_table(table: pa.Table):
     return id_val_ds_from_table(table)
+
+
+# FIXME: sort by `full_seq_num`, it's not modulo
+def nk_dict_to_ecg_da(nk_dict: dict[str, xr.DataArray]):
+    # filter out the non ecg data from nk_dict
+    nk_ecg_dict = {k: v for k, v in nk_dict.items() if "ECG" in k}
+    # rename each ecg(per lead) data like 'MDC_ECG_ELEC_POTL_II' -> 'II' / 'MDC_ECG_ELEC_POTL_III' -> 'III'
+    nk_ecg_das = [v.rename(k.removeprefix("MDC_ECG_ELEC_POTL_")) for k, v in nk_ecg_dict.items()]
+    # merge each ecg(per lead) into a new array with `lead` as a new coordinate
+    nk_ecg_da = xr.merge(nk_ecg_das).to_array("lead")
+    # name the data to ecg
+    return nk_ecg_da.rename("ecg")
+
+
+NK_RENAMES = {"SpO2": "Pleth", "ART": "Arterial", "RIMP": "RespImp"}
+
+
+def nk_dict_to_ds(nk_dict: dict[str, xr.DataArray]):
+    nk_ds = xr.merge([v.rename(k.removeprefix("MDC_")) for k, v in nk_dict.items() if "ECG" not in k])
+    nk_ds = nk_ds.rename_vars({k: r for k, r in NK_RENAMES.items() if k in nk_ds})
+    for k in nk_ds:
+        if k == "RespImp":
+            nk_ds[k].attrs.update({"long_name": "Respiratory Impendence"})
+        elif k == "SIQ1":
+            nk_ds[k].attrs.update({"long_name": "SpO2 quality"})
+    return nk_ds

@@ -283,16 +283,9 @@ class VentMeta(MongoMetaBase, database_name="meta_by_bed"):
     agg_by_day: Optional[bool] = query_field("is_agg_by_day", default=None)
     removed_kafka_topic: Optional[bool] = query_field("is_remove_kafka_topics", default=None)
 
-    def hdfs_path(self):
-        from nirscloud_julia.nirscloud_hdfs import HDFS_PREFIX_AGG_HR, HDFS_PREFIX_AGG_DAY, HDFS_PREFIX_KAFKA_TOPICS
-
-        if self.agg_by_hr:
-            prefix = HDFS_PREFIX_AGG_HR
-        elif self.agg_by_day:
-            prefix = HDFS_PREFIX_AGG_DAY
-        else:
-            prefix = HDFS_PREFIX_KAFKA_TOPICS
-        p = prefix / self.topic / f"_device_id={self.device}" / f"_bed_id={self.bed}" / f"_the_date={self.date}"
+    @property
+    def hdfs(self):
+        p = PurePosixPath(self.topic) / f"_device_id={self.device}" / f"_bed_id={self.bed}" / f"_the_date={self.date}"
         if self.hour is not None:
             p = p / f"_hr={self.hour}"
         return p

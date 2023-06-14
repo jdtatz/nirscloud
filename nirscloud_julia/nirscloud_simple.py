@@ -1,3 +1,6 @@
+import importlib.resources
+from functools import lru_cache
+from json import load
 from pathlib import PurePosixPath
 
 import httpx
@@ -9,10 +12,13 @@ from .nirscloud_data import (
     dcs_ds_from_table,
     fastrak_ds_from_table,
     finapres_ds_from_table,
+    id_val_dict_from_table,
+    id_val_ds_from_table,
     nirs_ds_from_table,
+    nk_dict_to_ds,
+    nk_dict_to_ecg_da,
     patient_monitor_da_dict_from_table,
     vent_ds_from_table,
-    vent_n_ds_from_table,
 )
 from .nirscloud_hdfs import (
     HDFS_DCS_PREFIXES,
@@ -33,12 +39,14 @@ from .nirscloud_mongo import (
     DCSMeta,
     FastrakMeta,
     FinapresMeta,
-    Meta,
     NIRSMeta,
+    NkAlertMeta,
     NkWaveMeta,
     PatientMonitorMeta,
+    VentAlarmsMeta,
     VentMeta,
     VentNumericMeta,
+    VentSettingsMeta,
     VentWaveMeta,
 )
 from .webhdfs import WebHDFS
@@ -90,3 +98,75 @@ def read_patient_monitor_das_from_meta(client: WebHDFS[httpx.Client], meta: Pati
             ),
         }.items()
     }
+
+
+def read_vent_table_from_meta(client: WebHDFS[httpx.Client], meta: VentMeta):
+    if meta.agg_by_hr:
+        return read_table_from_meta(client, meta, HDFS_PREFIX_AGG_HR3, HDFS_PREFIX_AGG_HR2, HDFS_PREFIX_AGG_HR)
+    elif meta.agg_by_day:
+        return read_table_from_meta(client, meta, HDFS_PREFIX_AGG_DAY)
+    else:
+        return read_table_from_meta(client, meta, HDFS_PREFIX_KAFKA_TOPICS)
+
+
+def read_nk_waves_ds_from_meta(client: WebHDFS[httpx.Client], meta: NkWaveMeta):
+    table = read_vent_table_from_meta(client, meta)
+    nk_wave_dict = id_val_dict_from_table(table)
+    ecg_da = nk_dict_to_ecg_da(nk_wave_dict)
+    nk_ds = nk_dict_to_ds(nk_wave_dict)
+    return ecg_da, nk_ds
+
+
+def read_vent_waves_ds_from_meta(client: WebHDFS[httpx.Client], meta: VentWaveMeta):
+    table = read_vent_table_from_meta(client, meta)
+    return vent_ds_from_table(table)
+
+
+def read_alarms_ds_from_meta(client: WebHDFS[httpx.Client], meta: VentAlarmsMeta):
+    table = read_vent_table_from_meta(client, meta)
+    return vent_ds_from_table(table)
+
+
+@lru_cache
+def _numerics_map() -> dict[str, str]:
+    resources = importlib.resources.files("nirscloud_julia")
+    with resources.joinpath("numerics_descr.json").open("r") as f:
+        return load(f)
+
+
+@lru_cache
+def _settings_map() -> dict[str, str]:
+    resources = importlib.resources.files("nirscloud_julia")
+    with resources.joinpath("settings_descr.json").open("r") as f:
+        return load(f)
+
+
+@lru_cache
+def _alarm_desc_mapping() -> dict[str, str]:
+    resources = importlib.resources.files("nirscloud_julia")
+    with resources.joinpath("alarm_settings_descr.json").open("r") as f:
+        return load(f)
+
+
+def read_vent_numerics_ds_from_meta(client: WebHDFS[httpx.Client], meta: VentNumericMeta):
+    table = read_vent_table_from_meta(client, meta)
+    vent_n_ds = id_val_ds_from_table(table)
+    for k, s_attrs in _numerics_map().items():
+        if k in vent_n_ds.variables:
+            vent_n_ds[k].attrs.update(s_attrs)
+    return vent_n_ds
+
+
+# FIXME: Emit a warning if there is somehow another kind of setting beside vent or alarm
+def read_settings_ds_from_meta(client: WebHDFS[httpx.Client], meta: VentSettingsMeta):
+    table = read_vent_table_from_meta(client, meta)
+    settings = id_val_dict_from_table(table)
+    vent_settings_ds = xr.Dataset({k: da for k, da in settings.items() if k.startswith("s")})
+    for k, s_attrs in _settings_map().items():
+        if k in vent_settings_ds.variables:
+            vent_settings_ds[k].attrs.update(s_attrs)
+    alarm_settings_ds = xr.Dataset({k: da for k, da in settings.items() if k.startswith("a")})
+    for k, s_attrs in _alarm_desc_mapping().items():
+        if k in alarm_settings_ds.variables:
+            alarm_settings_ds[k].attrs.update(s_attrs)
+    return vent_settings_ds, alarm_settings_ds

@@ -58,11 +58,17 @@ from .nirscloud_mongo import (
 )
 from .nirscloud_redcap import RedcapEntryMeta, create_redcap_cls_module
 from .nirscloud_simple import (
+    read_alarms_ds_from_meta,
     read_dcs_ds_from_meta,
     read_fastrak_ds_from_meta,
     read_finapres_ds_from_meta,
     read_nirs_ds_from_meta,
+    read_nk_waves_ds_from_meta,
     read_patient_monitor_das_from_meta,
+    read_settings_ds_from_meta,
     read_table_from_meta,
+    read_vent_numerics_ds_from_meta,
+    read_vent_table_from_meta,
+    read_vent_waves_ds_from_meta,
 )
 from .webhdfs import HDFSRemoteException, WebHDFS, async_walk, sync_walk

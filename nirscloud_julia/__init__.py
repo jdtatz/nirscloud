@@ -13,6 +13,7 @@ from .nirscloud_data import (
     vent_n_ds_from_table,
 )
 from .nirscloud_hdfs import (
+    HDFS_DCS_PREFIXES,
     HDFS_FASTRAK_PREFIXES,
     HDFS_FINAPRES_PREFIXES,
     HDFS_NAMESERVICE,
@@ -56,4 +57,12 @@ from .nirscloud_mongo import (
     query_vent_waves_meta,
 )
 from .nirscloud_redcap import RedcapEntryMeta, create_redcap_cls_module
+from .nirscloud_simple import (
+    read_dcs_ds_from_meta,
+    read_fastrak_ds_from_meta,
+    read_finapres_ds_from_meta,
+    read_nirs_ds_from_meta,
+    read_patient_monitor_das_from_meta,
+    read_table_from_meta,
+)
 from .webhdfs import HDFSRemoteException, WebHDFS, async_walk, sync_walk

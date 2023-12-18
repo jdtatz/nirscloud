@@ -1,5 +1,6 @@
 import base64
 import datetime
+import types
 import typing
 import uuid
 from collections.abc import Callable
@@ -8,13 +9,37 @@ from functools import partial
 from pathlib import PurePath, PurePosixPath, PureWindowsPath
 from typing import Any, ClassVar, Optional, TypeVar, Union
 
+import bson
 import numpy as np
 import pymongo
 import pymongo.collection
 import pymongo.cursor
 import pymongo.database
-from bson import ObjectId
 from typing_extensions import Literal, dataclass_transform
+
+BSONValue = Union[
+    float,
+    str,
+    dict[str, "BSONValue"],
+    list["BSONValue"],
+    bytes,
+    bson.Binary,
+    uuid.UUID,
+    types.NoneType,
+    bson.ObjectId,
+    bool,
+    datetime.date,
+    bson.DatetimeMS,
+    bson.Regex,
+    bson.DBRef,
+    bson.Code,
+    int,
+    bson.Timestamp,
+    bson.Int64,
+    bson.Decimal128,
+    bson.MinKey,
+    bson.MaxKey,
+]
 
 
 class MetaID(uuid.UUID):
@@ -51,7 +76,7 @@ def _id_cast(v: Any) -> _T:
 
 def query_field(
     key: str,
-    converter: "Callable[[Any], _T]" = _id_cast,
+    converter: "Callable[[BSONValue], _T]" = _id_cast,
     default: "_T | Literal[MISSING]" = MISSING,
     default_factory: "Callable[[], _T] | Literal[MISSING]" = MISSING,
     **field_kwargs,
@@ -68,13 +93,11 @@ def query_field(
 
 
 @dataclass_transform(field_specifiers=(query_field,), kw_only_default=True)
-class MongoMetaBase:
+class MongoMeta:
     _database_name: ClassVar[str]
     _collection_name: ClassVar[str]
     _default_query: "ClassVar[dict[str, Any]]"
     _kafka_topics: "ClassVar[list[str]]"
-    _extra: "dict[str, Any]"
-    # _extra: "dict[str, Any]" = field(init=False, default_factory=dict)
 
     def __init_subclass__(
         cls,
@@ -108,7 +131,7 @@ class MongoMetaBase:
                 yield (f.name, default_factory())
 
     @classmethod
-    def query_converters(cls) -> "dict[str, tuple[str, Callable[[Any], Any]]]":
+    def query_converters(cls) -> "dict[str, tuple[str, Callable[[BSONValue], Any]]]":
         return {
             f.metadata.get("query_key", f.name): (
                 f.name,
@@ -118,7 +141,7 @@ class MongoMetaBase:
         }
 
     @classmethod
-    def from_query(cls, query: "dict[str, Any]"):
+    def from_query(cls, query: "dict[str, BSONValue]"):
         converters = cls.query_converters()
         qdefaults = dict(cls.query_defaults())
         qfields = dict()
@@ -139,8 +162,12 @@ class MongoMetaBase:
         return self._kafka_topics
 
 
+class MongoMetaBase(MongoMeta, database_name="meta"):
+    _extra: "dict[str, BSONValue]" = field(default_factory=dict, init=False, repr=False, hash=False, compare=False)
+    mongo: bson.ObjectId = query_field("_id")
+
+
 class Meta(MongoMetaBase, database_name="meta"):
-    mongo: ObjectId = query_field("_id")
     hdfs: PurePath = query_field("hdfs_path", PurePosixPath)
     date: datetime.date = query_field("the_date", datetime.date.fromisoformat)
     meta: MetaID = query_field("meta_id", MetaID.from_stripped_base64)
@@ -354,7 +381,6 @@ def _empty_none(s: str) -> Optional[str]:
 
 
 class RedcapDefnMeta(MongoMetaBase, database_name="cchu_redcap2_metadata"):
-    mongo: ObjectId = query_field("_id")
     meta: str = query_field("meta_id")
     logic: Optional[str] = query_field("branching_logic", _empty_none)
     alignment: Optional[Literal["LH", "LV", "RH", "RV"]] = query_field("custom_alignment", _empty_none)

@@ -25,7 +25,6 @@ REDCAP_TEXT_TO_NUM_FIXES = {
 
 
 class RedcapEntryMeta(MongoMetaBase, database_name="cchu_redcap2"):
-    mongo: ObjectId = query_field("_id")
     meta: str = query_field("meta_id")
     subject_id: str = query_field("Subject ID")
     subject: int = dataclasses.field(init=False)
@@ -102,20 +101,21 @@ def _gen_redcap_cls_body(form_fields: "list[RedcapDefnMeta]") -> Iterator[ast.An
     for f in form_fields:
         kwargs = {}
         if f.ty in ("text", "notes", "descriptive"):
-            if f.text_validation_type_or_show_slider_number == "number":
+            kind = f.text_validation_type_or_show_slider_number
+            if kind == "number":
                 ty = ast.Name("float", ctx=ast.Load())
                 kwargs["converter"] = ast.Name("_convert_redcap_text_num", ctx=ast.Load())
-            elif f.text_validation_type_or_show_slider_number == "date_dmy":
+            elif kind == "date_dmy":
                 ty = ast.Name("datetime64", ctx=ast.Load())
                 kwargs["converter"] = ast.Name("_convert_redcap_text_date", ctx=ast.Load())
-            elif f.text_validation_type_or_show_slider_number == "time":
+            elif kind == "time":
                 ty = ast.Name("timedelta64", ctx=ast.Load())
                 kwargs["converter"] = ast.Name("_convert_redcap_text_time", ctx=ast.Load())
-            elif f.text_validation_type_or_show_slider_number is None:
+            elif kind is None:
                 ty = ast.Name("str", ctx=ast.Load())
                 kwargs["converter"] = ast.Name("_convert_redcap_no_empty", ctx=ast.Load())
             else:
-                raise NotImplementedError(f.text_validation_type_or_show_slider_number, f)
+                raise NotImplementedError(kind, f)
         elif f.ty in ("radio", "dropdown", "checkbox"):
             choices = f.select_choices_or_calculations.split(" | ")
             choices = dict(c.split(", ", maxsplit=1) for c in choices)
@@ -156,6 +156,9 @@ class _AstLoader(importlib.abc.InspectLoader):
     def get_source(self, fullname):
         return ast.unparse(self.module_ast)
 
+    def get_code(self, fullname):
+        return compile(self.module_ast, "<string>", "exec", dont_inherit=True)
+
 
 def create_redcap_cls_module(form_field_defns: "list[RedcapDefnMeta]", form_cls_map):
     form_defns = reduce(lambda grp, f: grp.setdefault(f.form, []).append(f) or grp, form_field_defns, {})
@@ -180,8 +183,8 @@ def create_redcap_cls_module(form_field_defns: "list[RedcapDefnMeta]", form_cls_
     )
     # runtime generated code is supposed to use filenames in the form of "<something>"
     unique_fpath = f"<generated from 0x{id(form_field_defns):x}>"
-    # FIXME: `linecache` doesn't allow filenames in the form of "<something>", `doctest` monkeypatches `linecache` module to enable inspection.
-    unique_fpath = str(Path(__file__).parent / unique_fpath)
+    # # FIXME: `linecache` doesn't allow filenames in the form of "<something>", `doctest` monkeypatches `linecache` module to enable inspection.
+    # unique_fpath = str(Path(__file__).parent / unique_fpath)
     spec = importlib.util.spec_from_loader(
         f"{__name__}.redcap", loader=_AstLoader(redcap_clss_mod), origin=unique_fpath
     )
@@ -197,3 +200,31 @@ def create_redcap_cls_module(form_field_defns: "list[RedcapDefnMeta]", form_cls_
     )
     spec.loader.exec_module(redcap)
     return redcap
+
+
+import functools
+import inspect
+
+_getsource = inspect.getsource
+
+
+@functools.wraps(_getsource)
+def getsource(m):
+    """`inspect.getsource` doesn't use the fast path for modules and can fail for generated modules"""
+    if inspect.ismodule(m):
+        spec = m.__spec__
+        if spec.loader and isinstance(spec.loader, importlib.abc.InspectLoader):
+            src = spec.loader.get_source(spec.name)
+            if src:
+                return src
+    return _getsource(m)
+
+
+def monkeypatch_inspect_getsource():
+    global _monkeypatch_applied
+    if not _monkeypatch_applied:
+        inspect.getsource = getsource
+    _monkeypatch_applied = True
+
+
+_monkeypatch_applied = False

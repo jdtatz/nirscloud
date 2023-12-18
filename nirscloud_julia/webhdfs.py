@@ -55,19 +55,48 @@ R = TypeVar("R", covariant=True)
 C = TypeVar("C", Client, AsyncClient)
 
 
-class HDFSRemoteException(Exception):
-    exception: str
-    """Name of the exception"""
+class BaseHDFSRemoteException(Exception):
     message: str
     """Exception message"""
-    javaClassName: Optional[str]
+    java_class_name: Optional[str]
     """Java class name of the exception"""
 
     def __init__(self, remote_error: RemoteException):
         self.message = remote_error["RemoteException"]["message"]
-        self.exception = remote_error["RemoteException"]["exception"]
-        self.javaClassName = remote_error["RemoteException"].get("javaClassName")
+        self.java_class_name = remote_error["RemoteException"].get("javaClassName")
         super().__init__(self.message)
+
+
+class HDFSRemoteException(BaseHDFSRemoteException):
+    exception: str
+    """Name of the exception"""
+
+    def __init__(self, remote_error: RemoteException):
+        self.exception = remote_error["RemoteException"]["exception"]
+        super().__init__(remote_error)
+
+
+class HDFSRemoteRetriableException(BaseHDFSRemoteException):
+    pass
+
+
+class HDFSRemoteStandbyException(BaseHDFSRemoteException):
+    pass
+
+
+def _from_remote_exception(remote_error: RemoteException):
+    exception = remote_error["RemoteException"]["exception"]
+    message = remote_error["RemoteException"]["message"]
+    if exception in ("IllegalArgumentException", "UnsupportedOperationException"):
+        return ValueError(message)
+    elif exception in ("SecurityException", "AccessControlException", "IOException"):
+        return PermissionError(message)
+    elif exception == "RetriableException":
+        return HDFSRemoteRetriableException(remote_error)
+    elif exception == "StandbyException":
+        return HDFSRemoteStandbyException(remote_error)
+    else:
+        return HDFSRemoteException(remote_error)
 
 
 async def _async_map(f: Callable[[T], R], v: Awaitable[T]) -> R:
@@ -81,7 +110,7 @@ def _handle_response(response: Response) -> Optional[Response]:
         return None
     elif response.headers.get("content-type") == "application/json":
         remote_error: RemoteException = response.json()
-        raise HDFSRemoteException(remote_error)
+        raise _from_remote_exception(remote_error)
     else:
         response.raise_for_status()
         raise AssertionError("Expected code to be unreachable")
@@ -106,11 +135,8 @@ def _sync_failover_send(
 ) -> Optional[Response]:
     try:
         return _handle_response(client.send(request, **send_kwargs))
-    except (TimeoutException, NetworkError):
+    except (TimeoutException, NetworkError, HDFSRemoteRetriableException, HDFSRemoteStandbyException):
         if not failover_requests:
-            raise
-    except HDFSRemoteException as e:
-        if e.exception not in ("RetriableException", "StandbyException") or not failover_requests:
             raise
     return _sync_failover_send(client, *failover_requests, **send_kwargs)
 
@@ -121,11 +147,8 @@ async def _async_failover_send(
 ) -> Optional[Response]:
     try:
         return _handle_response(await client.send(request, **send_kwargs))
-    except (TimeoutException, NetworkError):
+    except (TimeoutException, NetworkError, HDFSRemoteRetriableException, HDFSRemoteStandbyException):
         if not failover_requests:
-            raise
-    except HDFSRemoteException as e:
-        if e.exception not in ("RetriableException", "StandbyException") or not failover_requests:
             raise
     return await _async_failover_send(client, *failover_requests, **send_kwargs)
 
@@ -205,18 +228,34 @@ class WebHDFSOperation(Generic[R]):
 
     @overload
     def __call__(
-        self, wrapped: "WebHDFS[Client]", path: PurePosixPath, **build_request_kwargs: Unpack[BuildRequestKwargs]
+        self,
+        wrapped: "WebHDFS[Client]",
+        path: PurePosixPath,
+        params: Optional[Dict[str, Any]] = None,
+        **build_request_kwargs: Unpack[BuildRequestKwargs],
     ) -> R:
         ...
 
     @overload
     def __call__(
-        self, wrapped: "WebHDFS[AsyncClient]", path: PurePosixPath, **build_request_kwargs: Unpack[BuildRequestKwargs]
+        self,
+        wrapped: "WebHDFS[AsyncClient]",
+        path: PurePosixPath,
+        params: Optional[Dict[str, Any]] = None,
+        **build_request_kwargs: Unpack[BuildRequestKwargs],
     ) -> Awaitable[R]:
         ...
 
-    def __call__(self, wrapped: "WebHDFS[C]", path: PurePosixPath, **build_request_kwargs: Unpack[BuildRequestKwargs]):
-        requests = wrapped._build_requests(self.method, self.operation, path, self.params, build_request_kwargs)
+    def __call__(
+        self,
+        wrapped: "WebHDFS[C]",
+        path: PurePosixPath,
+        params: Optional[Dict[str, Any]] = None,
+        **build_request_kwargs: Unpack[BuildRequestKwargs],
+    ):
+        requests = wrapped._build_requests(
+            self.method, self.operation, path, {**self.params, **(params or {})}, build_request_kwargs
+        )
         return _failover_send_and_map(wrapped.client, self.handle, *requests, **self.send_kwargs)
 
     # FIXME: can't add kwargs typing to `Callable`

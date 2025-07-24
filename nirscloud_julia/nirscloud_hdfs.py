@@ -116,11 +116,11 @@ def create_webhdfs_client(
     credential_store=dict(keytab=SPARK_KERBEROS_KEYTAB),
     hdfs_masters=HDFS_MASTERS,
     *,
-    proxies=None,
     headers={},
     limits=httpx.Limits(),
+    **client_kwargs,
 ) -> WebHDFS[httpx.Client]:
-    session = httpx.Client(http2=True, limits=limits, proxies=proxies)
+    session = httpx.Client(http2=True, limits=limits, **client_kwargs)
     session.auth = nirscloud_webhdfs_auth(kerberos_principal, credential_store)
     session.headers.update(headers)
     return WebHDFS(session, *hdfs_masters, port=HDFS_HTTPS_PORT)
@@ -131,13 +131,12 @@ def create_async_webhdfs_client(
     credential_store=dict(keytab=SPARK_KERBEROS_KEYTAB),
     hdfs_masters=HDFS_MASTERS,
     *,
-    proxies=None,
     headers={},
     limits=httpx.Limits(),
+    **client_kwargs,
 ) -> WebHDFS[httpx.AsyncClient]:
-    session = httpx.AsyncClient(http2=True, limits=limits, proxies=proxies)
+    session = httpx.AsyncClient(http2=True, limits=limits, **client_kwargs)
     session.auth = nirscloud_webhdfs_auth(kerberos_principal, credential_store)
-    # session.proxies.update(proxies)
     session.headers.update(headers)
     return WebHDFS(session, *hdfs_masters, port=HDFS_HTTPS_PORT)
 

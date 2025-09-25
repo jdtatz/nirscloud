@@ -7,6 +7,7 @@ from dataclasses import MISSING, dataclass, field, fields
 from functools import partial
 from pathlib import PurePath, PurePosixPath, PureWindowsPath
 from typing import Any, ClassVar, Optional, TypeVar, Union
+import warnings
 
 import numpy as np
 import pymongo
@@ -34,6 +35,14 @@ Real = Union[int, float]
 
 def _to_real(v: Any) -> Real:
     return v if isinstance(v, (int, float)) else float(v)
+
+
+def _to_datetime64_ns(v: Any) -> np.datetime64:
+    try:
+        return np.datetime64(v, "ns")
+    except:
+        warnings.warn(f"Couldn't convert {v} into numpy.datetime64[ns]")
+        return np.datetime64("NaT", "ns")
 
 
 def _projection_index(v: dict, projection_key: str):
@@ -201,10 +210,10 @@ class MetaOxMeta(
     duration: Optional[datetime.timedelta] = query_field(
         "duration", lambda v: datetime.timedelta(seconds=float(v)), default=None
     )
-    nirs_start: Optional[np.datetime64] = query_field("nirsStartNanoTS", lambda v: np.datetime64(v, "ns"), default=None)
-    nirs_end: Optional[np.datetime64] = query_field("nirsEndNanoTS", lambda v: np.datetime64(v, "ns"), default=None)
-    dcs_start: Optional[np.datetime64] = query_field("dcsStartNanoTS", lambda v: np.datetime64(v, "ns"), default=None)
-    dcs_end: Optional[np.datetime64] = query_field("dcsEndNanoTS", lambda v: np.datetime64(v, "ns"), default=None)
+    nirs_start: Optional[np.datetime64] = query_field("nirsStartNanoTS", _to_datetime64_ns, default=None)
+    nirs_end: Optional[np.datetime64] = query_field("nirsEndNanoTS", _to_datetime64_ns, default=None)
+    dcs_start: Optional[np.datetime64] = query_field("dcsStartNanoTS", _to_datetime64_ns, default=None)
+    dcs_end: Optional[np.datetime64] = query_field("dcsEndNanoTS", _to_datetime64_ns, default=None)
     nirsraw_filepath: Optional[PurePosixPath] = query_field("nirsraw_filename", PurePosixPath, default=None)
     dcsraw_filepath: Optional[PurePosixPath] = query_field("dcsraw_filename", PurePosixPath, default=None)
 
@@ -277,7 +286,7 @@ class VentMeta(MongoMetaBase, database_name="meta_by_bed"):
     topic: str = query_field("the_topic")
     date: datetime.date = query_field("the_date", datetime.date.fromisoformat)
     count: int = query_field("count")
-    timestamp: np.datetime64 = query_field("the_nano_ts", lambda v: np.datetime64(v, "ns"))
+    timestamp: np.datetime64 = query_field("the_nano_ts", _to_datetime64_ns)
     hour: Optional[str] = query_field("hr", default=None)
     agg_by_hr: Optional[bool] = query_field("is_agg_by_hr", default=None)
     agg_by_day: Optional[bool] = query_field("is_agg_by_day", default=None)

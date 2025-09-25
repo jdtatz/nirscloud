@@ -192,7 +192,7 @@ class MetaOxMeta(
 ):
     nirs_distances: "tuple[Real, ...]" = query_field("nirsDistances", tuple)
     nirs_wavelengths: "Optional[tuple[Real, ...]]" = query_field("nirsWavelengths", tuple, default=None)
-    nirs_hz: Real = query_field("nirs_hz", _to_real)
+    nirs_hz: Optional[Real] = query_field("nirs_hz", _to_real, default=None)
     dcs_distances: "tuple[Real, ...]" = query_field("dcsDistances", tuple)
     dcs_wavelength: "Optional[Real]" = query_field("dcsWavelength", _to_real, default=None)
     dcs_hz: "Optional[Real]" = query_field("dcs_hz", _to_real, default=None)

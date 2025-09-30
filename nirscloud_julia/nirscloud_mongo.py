@@ -426,12 +426,13 @@ def query_meta_typed(
     query={},
     find_kwargs=None,
     meta_type: typing.Type[MongoMetaBase] = Meta,
+    add_default_query: bool = True,
 ):
     yield from map(
         meta_type.from_query,
         query_meta(
             client,
-            {**meta_type._default_query, **query},
+            {**meta_type._default_query, **query} if add_default_query else query,
             # fields=meta_type.query_keys(),
             find_kwargs=find_kwargs,
             database_name=meta_type._database_name,

@@ -1,5 +1,6 @@
 from pathlib import PosixPath
 from typing import Optional
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -55,20 +56,6 @@ def _to_datetime_scalar(v, unit="D"):
         return np.datetime64(v, unit)
 
 
-# polyfill for <3.9
-if hasattr(str, "removeprefix"):
-    str_removeprefix = str.removeprefix
-else:
-
-    def _removeprefix(self: str, prefix: str) -> str:
-        if self.startswith(prefix):
-            return self[len(prefix) :]
-        else:
-            return self[:]
-
-    str_removeprefix = _removeprefix
-
-
 def _maybe_rsplit_once(s: str, sep: Optional[str]):
     head, *tail = s.rsplit(sep, 1)
     if len(tail) == 0:
@@ -81,10 +68,10 @@ def _maybe_rsplit_once(s: str, sep: Optional[str]):
     )
 
 
-def add_meta_coords(ds: xr.Dataset, meta: Meta):
+def add_meta_coords(ds: xr.Dataset, meta: Meta, *, nirs_det_dim: str = "rho", metaox_to_rel_time: bool = True):
     loc, trial = _maybe_rsplit_once(meta.measurement, "_")
     trial = None if trial is None else int(trial)
-    session = int(str_removeprefix(meta.session, "S")) if meta.session else None
+    session = int(meta.session.removeprefix("S")) if meta.session else None
 
     coords = {
         "study": meta.study,
@@ -102,35 +89,76 @@ def add_meta_coords(ds: xr.Dataset, meta: Meta):
         # "group": meta.group,
     }
     if isinstance(meta, NIRSMeta):
-        start, end = ds["time"][0], ds["time"][-1]
-        dt_dur = np.round((end - start) / np.timedelta64(1, "s")).astype("timedelta64[s]")
-        coords.update(
-            nirs_start_time=start,
-            nirs_end_time=end,
-            duration=meta.duration if meta.duration is not None else dt_dur,
-            rho=("rho", np.array(meta.nirs_distances), dict(units="cm")),
-            frequency=((), meta.nirs_hz, dict(units="Hz")),
-        )
+        if "time" in ds.coords and np.issubdtype(ds.coords["time"].dtype, np.datetime64):
+            start, end = ds["time"][0].item(), ds["time"][-1].item()
+            if meta.nirs_start is not None:
+                if start > meta.nirs_start:
+                    start = meta.nirs_start
+                elif start < meta.nirs_start:
+                    warnings.warn(f"meta.nirs_start {meta.nirs_start} is later than the first data timestamp {start}")
+            if meta.nirs_end is not None:
+                if end < meta.nirs_end:
+                    end = meta.nirs_end
+                elif end > meta.nirs_end:
+                    warnings.warn(f"meta.nirs_end {meta.nirs_end} is earlier than the last data timestamp {end}")
+            dt_dur = np.round((end - start) / np.timedelta64(1, "s")).astype("timedelta64[s]")
+            coords.update(
+                nirs_start_time=start,
+                nirs_end_time=end,
+                duration=meta.duration if meta.duration is not None else dt_dur,
+            )
+            if metaox_to_rel_time:
+                ds["time"] = ds["time"] - ds["time"][0]
+        else:
+            if meta.duration is not None:
+                coords["duration"] = meta.duration
+            if meta.nirs_start is not None:
+                coords["nirs_start_time"] = meta.nirs_start
+            if meta.nirs_end is not None:
+                coords["nirs_end_time"] = meta.nirs_end
+
+        coords["rho"] = nirs_det_dim, np.array(meta.nirs_distances), dict(units="cm")
+        if meta.nirs_hz is not None:
+            coords["frequency"] = (), np.array(meta.nirs_hz), dict(units="Hz")
         if meta.nirs_wavelengths is not None:
             coords["wavelength"] = "wavelength", np.array(meta.nirs_wavelengths), dict(units="nm")
         if meta.gains is not None:
-            coords["gain"] = "rho", np.array(meta.gains)
-        ds["time"] = ds["time"] - ds["time"][0]
-        ds = ds.assign(phase=ds["phase"].assign_attrs(units="radian" if meta.is_radian else "deg"))
+            coords["gain"] = nirs_det_dim, np.array(meta.gains)
+        ds["phase"].attrs["units"] = "radian" if meta.is_radian else "deg"
     elif isinstance(meta, DCSMeta):
-        start, end = ds["time"][0], ds["time"][-1]
-        dt_dur = np.round((end - start) / np.timedelta64(1, "s")).astype("timedelta64[s]")
-        coords.update(
-            dcs_start_time=start,
-            dcs_end_time=end,
-            duration=meta.duration if meta.duration is not None else dt_dur,
-            rho=("channel", np.array(meta.dcs_distances), dict(units="cm")),
-        )
+        if "time" in ds.coords and np.issubdtype(ds.coords["time"].dtype, np.datetime64):
+            start, end = ds["time"][0], ds["time"][-1]
+            if meta.dcs_start is not None:
+                if start > meta.dcs_start:
+                    start = meta.dcs_start
+                elif start < meta.dcs_start:
+                    warnings.warn(f"meta.dcs_start {meta.dcs_start} is later than the fist data timestamp {start}")
+            if meta.dcs_end is not None:
+                if end < meta.dcs_end:
+                    end = meta.dcs_end
+                elif end > meta.dcs_end:
+                    warnings.warn(f"meta.dcs_end {meta.dcs_end} is earlier than the last data timestamp {end}")
+            dt_dur = np.round((end - start) / np.timedelta64(1, "s")).astype("timedelta64[s]")
+            coords.update(
+                dcs_start_time=start,
+                dcs_end_time=end,
+                duration=meta.duration if meta.duration is not None else dt_dur,
+            )
+            if metaox_to_rel_time:
+                ds["time"] = ds["time"] - ds["time"][0]
+        else:
+            if meta.duration is not None:
+                coords["duration"] = meta.duration
+            if meta.dcs_start is not None:
+                coords["dcs_start_time"] = meta.dcs_start
+            if meta.dcs_end is not None:
+                coords["dcs_end_time"] = meta.dcs_end
+
+        coords["rho"] = "channel", np.array(meta.dcs_distances), dict(units="cm")
         if meta.dcs_hz is not None:
             coords["frequency"] = (), np.array(meta.dcs_hz), dict(units="Hz")
         if meta.dcs_wavelength is not None:
             coords["wavelength"] = (), np.array(meta.dcs_wavelength), dict(units="nm")
-        ds["time"] = ds["time"] - ds["time"][0]
     elif isinstance(meta, FastrakMeta):
         position = ds["position"]
         if not meta.is_cm:

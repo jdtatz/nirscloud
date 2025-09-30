@@ -213,15 +213,15 @@ def _time_from_table(table: pa.Table):
         raise KeyError(f"No known time column, `_nano_ts` or `_milli_ts`, found in the table. [{table.column_names}]")
 
 
-def nirs_ds_from_table(table: pa.Table):
+def nirs_ds_from_table(table: pa.Table, *, nirs_det_dim: str = "rho"):
     return (
         xr.Dataset(
             data_vars=dict(
-                ac=(("time", "wavelength", "rho"), _from_chunked_array(table["ac"])),
-                phase=(("time", "wavelength", "rho"), _from_chunked_array(table["phase"])),
-                dc=(("time", "wavelength", "rho"), _from_chunked_array(table["dc"])),
-                dark=(("time", "rho"), _from_chunked_array(table["dark"])),
-                aux=(("time", "rho"), _from_chunked_array(table["aux"])),
+                ac=(("time", "wavelength", nirs_det_dim), _from_chunked_array(table["ac"])),
+                phase=(("time", "wavelength", nirs_det_dim), _from_chunked_array(table["phase"])),
+                dc=(("time", "wavelength", nirs_det_dim), _from_chunked_array(table["dc"])),
+                dark=(("time", nirs_det_dim), _from_chunked_array(table["dark"])),
+                aux=(("time", nirs_det_dim), _from_chunked_array(table["aux"])),
             ),
             coords=dict(time=("time", _time_from_table(table))),
         )

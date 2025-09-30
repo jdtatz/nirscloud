@@ -159,6 +159,8 @@ def sync_read_fragments(client: WebHDFS[httpx.Client], dir_path: PurePosixPath) 
         for file in files
         if file.endswith(".parquet")
     ]
+    if not fragments:
+        raise FileNotFoundError(dir_path)
     return pds.FileSystemDataset(fragments, schema=fragments[0].physical_schema, format=_parquet_format)
 
 
@@ -172,13 +174,15 @@ async def async_read_fragments(client: WebHDFS[httpx.AsyncClient], dir_path: Pur
             if file.endswith(".parquet")
         )
     )
+    if not fragments:
+        raise FileNotFoundError(dir_path)
     return pds.FileSystemDataset(fragments, schema=fragments[0].physical_schema, format=_parquet_format)
 
 
 def read_table_from_parts(client: WebHDFS[httpx.Client], dir_path: PurePosixPath) -> pa.Table:
     status = client.status(dir_path)
     if status is None:
-        raise FileNotFoundError
+        raise FileNotFoundError(dir_path)
     if status["FileStatus"]["type"] == "FILE":
         return _sync_read_fragment(client, dir_path).to_table()
     return sync_read_fragments(client, dir_path).to_table()
@@ -190,7 +194,7 @@ def read_table_from_meta(client: WebHDFS[httpx.Client], meta: Meta, *hdfs_prefix
         if status is not None:
             break
     else:
-        raise FileNotFoundError
+        raise FileNotFoundError(meta.hdfs)
     full_path = hdfs_prefix / meta.hdfs
     if status["FileStatus"]["type"] == "FILE":
         return _sync_read_fragment(client, full_path).to_table()
@@ -200,7 +204,7 @@ def read_table_from_meta(client: WebHDFS[httpx.Client], meta: Meta, *hdfs_prefix
 async def async_read_table_from_parts(client: WebHDFS[httpx.AsyncClient], dir_path: PurePosixPath) -> pa.Table:
     status = await client.status(dir_path)
     if status is None:
-        raise FileNotFoundError
+        raise FileNotFoundError(dir_path)
     if status["FileStatus"]["type"] == "FILE":
         return (await _async_read_fragment(client, dir_path)).to_table()
     return (await async_read_fragments(client, dir_path)).to_table()
@@ -214,7 +218,7 @@ async def async_read_table_from_meta(
         if status is not None:
             break
     else:
-        raise FileNotFoundError
+        raise FileNotFoundError(meta.hdfs)
     full_path = hdfs_prefix / meta.hdfs
     if status["FileStatus"]["type"] == "FILE":
         return (await _async_read_fragment(client, full_path)).to_table()

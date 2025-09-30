@@ -118,6 +118,14 @@ def add_meta_coords(ds: xr.Dataset, meta: Meta, *, nirs_det_dim: str = "rho", me
             if meta.nirs_end is not None:
                 coords["nirs_end_time"] = meta.nirs_end
 
+            if "nirs_start_time" in ds.attrs:
+                start = ds.attrs["nirs_start_time"]
+                if meta.nirs_start is not None and meta.nirs_start > start:
+                    warnings.warn(f"meta.nirs_start {meta.nirs_start} is later than the first data timestamp {start}")
+                    coords["nirs_start_time"] = start
+                elif meta.nirs_start is None:
+                    coords["nirs_start_time"] = start
+
         coords["rho"] = nirs_det_dim, np.array(meta.nirs_distances), dict(units="cm")
         if meta.nirs_hz is not None:
             coords["frequency"] = (), np.array(meta.nirs_hz), dict(units="Hz")
@@ -154,6 +162,14 @@ def add_meta_coords(ds: xr.Dataset, meta: Meta, *, nirs_det_dim: str = "rho", me
                 coords["dcs_start_time"] = meta.dcs_start
             if meta.dcs_end is not None:
                 coords["dcs_end_time"] = meta.dcs_end
+
+            if "dcs_start_time" in ds.attrs:
+                start = ds.attrs["dcs_start_time"]
+                if meta.dcs_start is not None and meta.dcs_start > start:
+                    warnings.warn(f"meta.dcs_start {meta.dcs_start} is later than the first data timestamp {start}")
+                    coords["dcs_start_time"] = start
+                elif meta.dcs_start is None:
+                    coords["dcs_start_time"] = start
 
         coords["rho"] = "channel", np.array(meta.dcs_distances), dict(units="cm")
         if meta.dcs_hz is not None:
@@ -214,8 +230,45 @@ def _time_from_table(table: pa.Table):
         raise KeyError(f"No known time column, `_nano_ts` or `_milli_ts`, found in the table. [{table.column_names}]")
 
 
+def _offset_time_from_table(table: pa.Table):
+    if "_offset_nano_ts" in table.column_names and "_nano_ts" in table.column_names:
+        time = _from_chunked_array(table["_offset_nano_ts"]).astype("timedelta64[ns]")
+        ## TODO: loading the entire array and checking it is overkill
+        ts = _from_chunked_array(table["_nano_ts"]).astype("datetime64[ns]")
+        start_ts_vals = np.unique_values(ts - time)
+        if start_ts_vals.size > 1:
+            ## NOTE: this should never happen
+            raise ValueError("Inconsistent timestamp vs timedelta")
+        (start_ts,) = start_ts_vals
+        return time, start_ts
+    elif "_offset_nano_ts" in table.column_names:
+        return _from_chunked_array(table["_offset_nano_ts"]).astype("timedelta64[ns]"), None
+    elif "_nano_ts" in table.column_names:
+        return _from_chunked_array(table["_nano_ts"]).astype("datetime64[ns]"), None
+    ## TODO: find if "_offset_milli_ts" is used anywhere
+    elif "_offset_milli_ts" in table.column_names and "_milli_ts" in table.column_names:
+        time = _from_chunked_array(table["_offset_milli_ts"]).astype("timedelta64[ms]")
+        ## TODO: loading the entire array and checking it is overkill
+        ts = _from_chunked_array(table["_milli_ts"]).astype("datetime64[ms]")
+        start_ts_vals = np.unique_values(ts - time)
+        if start_ts_vals.size > 1:
+            ## NOTE: this should never happen
+            raise ValueError("Incomsistent timestamp vs timedelta")
+        (start_ts,) = start_ts_vals
+        return time, start_ts
+    elif "_offset_milli_ts" in table.column_names:
+        return _from_chunked_array(table["_offset_milli_ts"]).astype("timedelta64[ms]"), None
+    elif "_milli_ts" in table.column_names:
+        return _from_chunked_array(table["_milli_ts"]).astype("datetime64[ms]"), None
+    else:
+        raise KeyError(
+            f"No known time column, `_offset_nano_ts`, `_nano_ts` or `_milli_ts`, found in the table. [{table.column_names}]"
+        )
+
+
 def nirs_ds_from_table(table: pa.Table, *, nirs_det_dim: str = "rho"):
-    return (
+    time, start = _offset_time_from_table(table)
+    ds = (
         xr.Dataset(
             data_vars=dict(
                 ac=(("time", "wavelength", nirs_det_dim), _from_chunked_array(table["ac"])),
@@ -224,31 +277,37 @@ def nirs_ds_from_table(table: pa.Table, *, nirs_det_dim: str = "rho"):
                 dark=(("time", nirs_det_dim), _from_chunked_array(table["dark"])),
                 aux=(("time", nirs_det_dim), _from_chunked_array(table["aux"])),
             ),
-            coords=dict(time=("time", _time_from_table(table))),
+            coords=dict(time=("time", time)),
         )
         .transpose(..., "time")
         .sortby("time")
     )
+    if start is not None:
+        ds.attrs["nirs_start_time"] = start
+    return ds
 
 
 def dcs_ds_from_table(table: pa.Table):
     tau = _from_chunked_array(table["t"])
     # assert np.unique(tau, axis=0).shape[0] == 1
-    return (
+    time, start = _offset_time_from_table(table)
+    ds = (
         xr.Dataset(
             data_vars=dict(
                 counts=(("time", "channel"), _from_chunked_array(table["CPS"]), dict(units="Hz")),
-                # t=(("time", "tau"), tau),
                 value=(("time", "tau", "channel"), _from_chunked_array(table["t_val"])),
             ),
             coords=dict(
-                time=("time", _time_from_table(table)),
-                tau=("tau", tau[0]),
+                time=("time", time),
+                tau=("tau", tau[0], {"units": "s"}),
             ),
         )
         .transpose(..., "time")
         .sortby("time")
     )
+    if start is not None:
+        ds.attrs["dcs_start_time"] = start
+    return ds
 
 
 def fastrak_ds_from_table(table: pa.Table):

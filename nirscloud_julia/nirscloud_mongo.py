@@ -195,10 +195,12 @@ class MetaOxMeta(
     Meta,
     database_name="meta",
     default_query={
+        "hdfs_path.val": {"$exists": True},
         "n_nirs_dedup.val": {"$exists": True},
         "isValid.val": {"$ne": False},
     },
 ):
+    is_valid: bool = query_field("isValid", bool, default=True)
     nirs_distances: "tuple[Real, ...]" = query_field("nirsDistances", tuple)
     nirs_wavelengths: "Optional[tuple[Real, ...]]" = query_field("nirsWavelengths", tuple, default=None)
     nirs_hz: Optional[Real] = query_field("nirs_hz", _to_real, default=None)
@@ -222,24 +224,34 @@ class NIRSMeta(
     MetaOxMeta,
     database_name="meta",
     default_query={
+        "hdfs_path.val": {"$exists": True},
+        ## TODO: should be just `n_nirs.val`, but can't break compat
         "n_nirs_dedup.val": {"$exists": True},
         "isValid.val": {"$ne": False},
     },
     kafka_topics=["metaox_nirs_rs", "metaox_nirs_s"],
 ):
-    pass
+    n_nirs: int = query_field("n_nirs", int)
+    n_dcs: Optional[int] = query_field("n_dcs", int, default=None)
+    n_nirs_dedup: Optional[int] = query_field("n_nirs_dedup", int, default=None)
+    n_dcs_dedup: Optional[int] = query_field("n_dcs_dedup", int, default=None)
 
 
 class DCSMeta(
     MetaOxMeta,
     database_name="meta",
     default_query={
+        "hdfs_path.val": {"$exists": True},
+        ## TODO: should be just `n_dcs.val`, but can't break compat
         "n_dcs_dedup.val": {"$exists": True},
         "isValid.val": {"$ne": False},
     },
     kafka_topics=["metaox_dcs_s"],
 ):
-    pass
+    n_dcs: int = query_field("n_dcs", int)
+    n_nirs: Optional[int] = query_field("n_nirs", int, default=None)
+    n_dcs_dedup: Optional[int] = query_field("n_dcs_dedup", int, default=None)
+    n_nirs_dedup: Optional[int] = query_field("n_nirs_dedup", int, default=None)
 
 
 class FinapresMeta(

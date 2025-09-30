@@ -17,6 +17,7 @@ from .nirscloud_mongo import (
 )
 
 
+@warnings.deprecated("Use `nirscloud_raw.read_nirsraw` instead")
 def read_nirsraw(nirsraw_path: PosixPath, nirsraw_rhos: tuple, nirsraw_wavelengths: tuple):
     if nirsraw_path.parts[:2] == ("/", "smb"):
         nirsraw_path = PosixPath("/", "home", *nirsraw_path.parts[2:])

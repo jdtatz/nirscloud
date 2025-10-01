@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "nirscloud_julia"
 authors = [{name = "Julia Tatz", email = "julia.tatz@childrens.harvard.edu"}]
-requires-python = ">=3.9"
+requires-python = ">=3.13"
 dynamic = ["version"]
 dependencies = [
     "typing_extensions>=4.3.0",

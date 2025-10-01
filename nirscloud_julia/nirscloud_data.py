@@ -279,7 +279,7 @@ def nirs_ds_from_table(table: pa.Table, *, nirs_det_dim: str = "rho"):
             ),
             coords=dict(time=("time", time)),
         )
-        .transpose(..., "time")
+        .transpose()
         .sortby("time")
     )
     if start is not None:
@@ -302,7 +302,7 @@ def dcs_ds_from_table(table: pa.Table):
                 tau=("tau", tau[0], {"units": "s"}),
             ),
         )
-        .transpose(..., "time")
+        .transpose()
         .sortby("time")
     )
     if start is not None:

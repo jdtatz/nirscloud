@@ -62,11 +62,11 @@ def query_field(
 ):
     default_factory = (lambda: default) if default is not MISSING else default_factory
     return field(
-        metadata=dict(
-            query_key=key,
-            query_converter=converter,
-            query_default_factory=default_factory,
-        ),
+        metadata={
+            "query_key": key,
+            "query_converter": converter,
+            "query_default_factory": default_factory,
+        },
         **field_kwargs,
     )
 
@@ -93,7 +93,7 @@ class MongoMeta:
     ):
         cls._database_name = database_name
         cls._collection_name = f"{database_name}3" if collection_name is None else collection_name
-        cls._default_query = dict() if default_query is None else default_query
+        cls._default_query = {} if default_query is None else default_query
         cls._kafka_topics = [] if kafka_topics is None else kafka_topics
         super().__init_subclass__(*args, **kwargs)
         dataclass(cls, init=init, frozen=frozen, eq=eq, order=order)
@@ -123,8 +123,8 @@ class MongoMeta:
     def from_query(cls, query: dict[str, Any]):
         converters = cls.query_converters()
         qdefaults = dict(cls.query_defaults())
-        qfields = dict()
-        extra = dict()
+        qfields = {}
+        extra = {}
         for qk, qv in query.items():
             converter = converters.get(qk, None)
             if converter is None:

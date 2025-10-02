@@ -126,11 +126,11 @@ def add_meta_coords(ds: xr.Dataset, meta: Meta, *, nirs_det_dim: str = "rho", me
                 elif meta.nirs_start is None:
                     coords["nirs_start_time"] = start
 
-        coords["rho"] = nirs_det_dim, np.array(meta.nirs_distances), dict(units="cm")
+        coords["rho"] = nirs_det_dim, np.array(meta.nirs_distances), {"units": "cm"}
         if meta.nirs_hz is not None:
-            coords["frequency"] = (), np.array(meta.nirs_hz), dict(units="Hz")
+            coords["frequency"] = (), np.array(meta.nirs_hz), {"units": "Hz"}
         if meta.nirs_wavelengths is not None:
-            coords["wavelength"] = "wavelength", np.array(meta.nirs_wavelengths), dict(units="nm")
+            coords["wavelength"] = "wavelength", np.array(meta.nirs_wavelengths), {"units": "nm"}
         if meta.gains is not None:
             coords["gain"] = nirs_det_dim, np.array(meta.gains)
         ds["phase"].attrs["units"] = "radian" if meta.is_radian else "deg"
@@ -171,11 +171,11 @@ def add_meta_coords(ds: xr.Dataset, meta: Meta, *, nirs_det_dim: str = "rho", me
                 elif meta.dcs_start is None:
                     coords["dcs_start_time"] = start
 
-        coords["rho"] = "channel", np.array(meta.dcs_distances), dict(units="cm")
+        coords["rho"] = "channel", np.array(meta.dcs_distances), {"units": "cm"}
         if meta.dcs_hz is not None:
-            coords["frequency"] = (), np.array(meta.dcs_hz), dict(units="Hz")
+            coords["frequency"] = (), np.array(meta.dcs_hz), {"units": "Hz"}
         if meta.dcs_wavelength is not None:
-            coords["wavelength"] = (), np.array(meta.dcs_wavelength), dict(units="nm")
+            coords["wavelength"] = (), np.array(meta.dcs_wavelength), {"units": "nm"}
     elif isinstance(meta, FastrakMeta):
         position = ds["position"]
         if not meta.is_cm:
@@ -270,14 +270,14 @@ def nirs_ds_from_table(table: pa.Table, *, nirs_det_dim: str = "rho"):
     time, start = _offset_time_from_table(table)
     ds = (
         xr.Dataset(
-            data_vars=dict(
-                ac=(("time", "wavelength", nirs_det_dim), _from_chunked_array(table["ac"])),
-                phase=(("time", "wavelength", nirs_det_dim), _from_chunked_array(table["phase"])),
-                dc=(("time", "wavelength", nirs_det_dim), _from_chunked_array(table["dc"])),
-                dark=(("time", nirs_det_dim), _from_chunked_array(table["dark"])),
-                aux=(("time", nirs_det_dim), _from_chunked_array(table["aux"])),
-            ),
-            coords=dict(time=("time", time)),
+            data_vars={
+                "ac": (("time", "wavelength", nirs_det_dim), _from_chunked_array(table["ac"])),
+                "phase": (("time", "wavelength", nirs_det_dim), _from_chunked_array(table["phase"])),
+                "dc": (("time", "wavelength", nirs_det_dim), _from_chunked_array(table["dc"])),
+                "dark": (("time", nirs_det_dim), _from_chunked_array(table["dark"])),
+                "aux": (("time", nirs_det_dim), _from_chunked_array(table["aux"])),
+            },
+            coords={"time": ("time", time)},
         )
         .transpose()
         .sortby("time")
@@ -293,14 +293,14 @@ def dcs_ds_from_table(table: pa.Table):
     time, start = _offset_time_from_table(table)
     ds = (
         xr.Dataset(
-            data_vars=dict(
-                counts=(("time", "channel"), _from_chunked_array(table["CPS"]), dict(units="Hz")),
-                value=(("time", "tau", "channel"), _from_chunked_array(table["t_val"])),
-            ),
-            coords=dict(
-                time=("time", time),
-                tau=("tau", tau[0], {"units": "s"}),
-            ),
+            data_vars={
+                "counts": (("time", "channel"), _from_chunked_array(table["CPS"]), {"units": "Hz"}),
+                "value": (("time", "tau", "channel"), _from_chunked_array(table["t_val"])),
+            },
+            coords={
+                "time": ("time", time),
+                "tau": ("tau", tau[0], {"units": "s"}),
+            },
         )
         .transpose()
         .sortby("time")
@@ -322,16 +322,16 @@ def fastrak_ds_from_table(table: pa.Table):
     angles = np.stack([_from_chunked_array(table[c]) for c in euler_axes], axis=1)
     orientation = np.roll(Rotation.from_euler("ZYX", angles, degrees=True).as_quat().transpose(), 1, axis=0)
     ds = xr.Dataset(
-        data_vars=dict(
-            position=(("cartesian_axes", "stacked"), position),
-            orientation=(("quaternion_axes", "stacked"), orientation),
-        ),
-        coords=dict(
-            idx=("stacked", _from_chunked_array(table["idx"])),
-            time=("stacked", _time_from_table(table)),
-            cartesian_axes=("cartesian_axes", list(cartesian_axes)),
-            quaternion_axes=("quaternion_axes", list(quaternion_axes)),
-        ),
+        data_vars={
+            "position": (("cartesian_axes", "stacked"), position),
+            "orientation": (("quaternion_axes", "stacked"), orientation),
+        },
+        coords={
+            "idx": ("stacked", _from_chunked_array(table["idx"])),
+            "time": ("stacked", _time_from_table(table)),
+            "cartesian_axes": ("cartesian_axes", list(cartesian_axes)),
+            "quaternion_axes": ("quaternion_axes", list(quaternion_axes)),
+        },
     )
     ds = ds.set_index(stacked=["time", "idx"]).unstack("stacked").transpose("idx", ..., "time")
     return ds.sortby("time")
@@ -339,14 +339,14 @@ def fastrak_ds_from_table(table: pa.Table):
 
 def finapres_ds_from_table(table: pa.Table):
     return xr.Dataset(
-        data_vars=dict(
-            pressure=("time", _from_chunked_array(table["pressure_mmHg"]), dict(units="mmHg")),
-            # height=("time", _from_chunked_array(table["height_mmHg"]), dict(units="mmHg")),
-            plethysmograph=("time", _from_chunked_array(table["plethysmograph"])),
-        ),
-        coords=dict(
-            time=("time", _time_from_table(table)),
-        ),
+        data_vars={
+            "pressure": ("time", _from_chunked_array(table["pressure_mmHg"]), {"units": "mmHg"}),
+            # "height": ("time", _from_chunked_array(table["height_mmHg"]), {"units": "mmHg"}),
+            "plethysmograph": ("time", _from_chunked_array(table["plethysmograph"])),
+        },
+        coords={
+            "time": ("time", _time_from_table(table)),
+        },
     ).sortby("time")
 
 

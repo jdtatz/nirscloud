@@ -57,6 +57,7 @@ from .nirscloud_mongo import (
     query_vent_waves_meta,
 )
 from .nirscloud_redcap import RedcapEntryMeta, create_redcap_cls_module
+from .nirscloud_redundancies import try_read_nirs_ds_from_meta
 from .nirscloud_simple import (
     read_alarms_ds_from_meta,
     read_dcs_ds_from_meta,

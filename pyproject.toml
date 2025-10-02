@@ -17,6 +17,7 @@ dependencies = [
     "httpx[http2]",
     "httpx_gssapi>=0.1.7",
     "pyarrow>=12",
+    "fsspec",
 ]
 
 [tool.black]

@@ -24,7 +24,7 @@ def read_nirsraw(
     fname: str | Path,
     ndet: int,
     nwavelength: Optional[int] = None,
-    dtype: Optional[DTypeLike] = None,
+    dtype: Optional[DTypeLike] = np.float32,
     *,
     nirs_hz: Optional[int] = None,
 ):
@@ -58,7 +58,7 @@ def read_nirsraw(
 
 def read_dcsraw(
     fname: str | Path,
-    dtype: Optional[DTypeLike] = None,
+    dtype: Optional[DTypeLike] = np.float32,
     *,
     flipped_banks: Optional[bool] = None,
     dcs_hz: Optional[int] = None,

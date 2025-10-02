@@ -43,7 +43,7 @@ def read_nirsraw(
     _idx, raw_data, aux, dark = np.split(nirsraw.T, sections[:-1], axis=0)
     _idx = _idx.squeeze(axis=0)
     assert np.allclose(np.diff(_idx), 1) and _idx[0] == 0
-    ac, dc, phase = raw_data.reshape(3, nwavelength, ndet, ntime)
+    ac, dc, phase = raw_data.T.reshape(ntime, ndet, nwavelength, 3).T
     ds = xr.Dataset(
         {
             "ac": (("wavelength", "detector", "time"), ac),

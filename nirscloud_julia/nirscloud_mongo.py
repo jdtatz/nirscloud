@@ -1,21 +1,16 @@
 import base64
 import datetime
-import typing
 import uuid
+import warnings
 from collections.abc import Callable
 from dataclasses import MISSING, dataclass, field, fields
 from functools import partial
 from pathlib import PurePath, PurePosixPath, PureWindowsPath
-from typing import Any, ClassVar, Optional, TypeVar, Union
-import warnings
+from typing import Any, ClassVar, Literal, Optional, TypeVar, dataclass_transform
 
+import bson
 import numpy as np
 import pymongo
-import pymongo.collection
-import pymongo.cursor
-import pymongo.database
-from bson import ObjectId
-from typing_extensions import Literal, dataclass_transform
 
 
 class MetaID(uuid.UUID):
@@ -30,7 +25,7 @@ class MetaID(uuid.UUID):
         return self.to_stripped_base64()
 
 
-Real = Union[int, float]
+Real = int | float
 
 
 def _to_real(v: Any) -> Real:
@@ -40,7 +35,7 @@ def _to_real(v: Any) -> Real:
 def _to_datetime64_ns(v: Any) -> np.datetime64:
     try:
         return np.datetime64(v, "ns")
-    except:
+    except Exception:
         warnings.warn(f"Couldn't convert {v} into numpy.datetime64[ns]")
         return np.datetime64("NaT", "ns")
 
@@ -60,9 +55,9 @@ def _id_cast(v: Any) -> _T:
 
 def query_field(
     key: str,
-    converter: "Callable[[Any], _T]" = _id_cast,
-    default: "_T | Literal[MISSING]" = MISSING,
-    default_factory: "Callable[[], _T] | Literal[MISSING]" = MISSING,
+    converter: Callable[[Any], _T] = _id_cast,
+    default: _T | Literal[MISSING] = MISSING,
+    default_factory: Callable[[], _T] | Literal[MISSING] = MISSING,
     **field_kwargs,
 ):
     default_factory = (lambda: default) if default is not MISSING else default_factory
@@ -77,20 +72,18 @@ def query_field(
 
 
 @dataclass_transform(field_specifiers=(query_field,), kw_only_default=True)
-class MongoMetaBase:
+class MongoMeta:
     _database_name: ClassVar[str]
     _collection_name: ClassVar[str]
-    _default_query: "ClassVar[dict[str, Any]]"
-    _kafka_topics: "ClassVar[list[str]]"
-    _extra: "dict[str, Any]"
-    # _extra: "dict[str, Any]" = field(init=False, default_factory=dict)
+    _default_query: ClassVar[dict[str, Any]]
+    _kafka_topics: ClassVar[list[str]]
 
     def __init_subclass__(
         cls,
         database_name: str,
         collection_name: Optional[str] = None,
-        default_query: "Optional[dict[str, Any]]" = None,
-        kafka_topics: "Optional[list[str]]" = None,
+        default_query: Optional[dict[str, Any]] = None,
+        kafka_topics: Optional[list[str]] = None,
         *args,
         init: bool = True,
         frozen: bool = False,
@@ -127,7 +120,7 @@ class MongoMetaBase:
         }
 
     @classmethod
-    def from_query(cls, query: "dict[str, Any]"):
+    def from_query(cls, query: dict[str, Any]):
         converters = cls.query_converters()
         qdefaults = dict(cls.query_defaults())
         qfields = dict()
@@ -148,8 +141,12 @@ class MongoMetaBase:
         return self._kafka_topics
 
 
+class MongoMetaBase(MongoMeta, database_name="meta"):
+    _extra: dict[str, Any] = field(default_factory=dict, init=False, repr=False, hash=False, compare=False)
+    mongo: bson.ObjectId = query_field("_id")
+
+
 class Meta(MongoMetaBase, database_name="meta"):
-    mongo: ObjectId = query_field("_id")
     hdfs: PurePath = query_field("hdfs_path", PurePosixPath)
     date: datetime.date = query_field("the_date", datetime.date.fromisoformat)
     meta: MetaID = query_field("meta_id", MetaID.from_stripped_base64)
@@ -163,7 +160,7 @@ class Meta(MongoMetaBase, database_name="meta"):
     session: Optional[str] = query_field("session_id", str, default=None)
     study: Optional[str] = query_field("study_id", str, default=None)
     device: Optional[str] = query_field("device_id", str, default=None)
-    operators: "tuple[str, ...]" = query_field("operators", tuple, default_factory=tuple)
+    operators: tuple[str, ...] = query_field("operators", tuple, default_factory=tuple)
     file_prefix: Optional[PurePath] = query_field("file_prefix", PureWindowsPath, default=None)
 
 
@@ -175,9 +172,9 @@ class Meta(MongoMetaBase, database_name="meta"):
 #     is_pm: bool = query_field("isPM", bool, default=False)
 #     is_with_hairline: bool = query_field("isWithHairline", bool, default=False)
 #     is_with_probe: bool = query_field("isWithProbe", bool, default=False)
-#     measurement_sites: "tuple[str, ...]" = query_field("measurementSites", tuple, default_factory=tuple)
-#     pm_info: "dict[str, Any]" = query_field("pm", default_factory=dict)
-#     locations_measured: "tuple[str, ...]" = query_field("locations_measured", tuple, default_factory=tuple)
+#     measurement_sites: tuple[str, ...] = query_field("measurementSites", tuple, default_factory=tuple)
+#     pm_info: dict[str, Any] = query_field("pm", default_factory=dict)
+#     locations_measured: tuple[str, ...] = query_field("locations_measured", tuple, default_factory=tuple)
 #     txt_filepath: Optional[PurePosixPath] = query_field("txt_filename", PurePosixPath, default=None)
 #     yaml_filepath: Optional[PurePosixPath] = query_field("yaml_filename", PurePosixPath, default=None)
 
@@ -201,13 +198,13 @@ class MetaOxMeta(
     },
 ):
     is_valid: bool = query_field("isValid", bool, default=True)
-    nirs_distances: "tuple[Real, ...]" = query_field("nirsDistances", tuple)
-    nirs_wavelengths: "Optional[tuple[Real, ...]]" = query_field("nirsWavelengths", tuple, default=None)
+    nirs_distances: tuple[Real, ...] = query_field("nirsDistances", tuple)
+    nirs_wavelengths: Optional[tuple[Real, ...]] = query_field("nirsWavelengths", tuple, default=None)
     nirs_hz: Optional[Real] = query_field("nirs_hz", _to_real, default=None)
-    dcs_distances: "tuple[Real, ...]" = query_field("dcsDistances", tuple)
-    dcs_wavelength: "Optional[Real]" = query_field("dcsWavelength", _to_real, default=None)
-    dcs_hz: "Optional[Real]" = query_field("dcs_hz", _to_real, default=None)
-    gains: "Optional[tuple[Real, ...]]" = query_field("gains", tuple, default=None)
+    dcs_distances: tuple[Real, ...] = query_field("dcsDistances", tuple)
+    dcs_wavelength: Optional[Real] = query_field("dcsWavelength", _to_real, default=None)
+    dcs_hz: Optional[Real] = query_field("dcs_hz", _to_real, default=None)
+    gains: Optional[tuple[Real, ...]] = query_field("gains", tuple, default=None)
     is_radian: bool = query_field("is_nirs_radian_single", bool, default=False)
     duration: Optional[datetime.timedelta] = query_field(
         "duration", lambda v: datetime.timedelta(seconds=float(v)), default=None
@@ -291,7 +288,6 @@ class PatientMonitorNumericsMeta(
 
 
 class VentMeta(MongoMetaBase, database_name="meta_by_bed"):
-    mongo: Any = query_field("_id", default=None)
     meta: str = query_field("meta_id")
     bed: str = query_field("bed_id")
     device: str = query_field("device_id")
@@ -375,7 +371,6 @@ def _empty_none(s: str) -> Optional[str]:
 
 
 class RedcapDefnMeta(MongoMetaBase, database_name="cchu_redcap2_metadata"):
-    mongo: ObjectId = query_field("_id")
     meta: str = query_field("meta_id")
     logic: Optional[str] = query_field("branching_logic", _empty_none)
     alignment: Optional[Literal["LH", "LV", "RH", "RV"]] = query_field("custom_alignment", _empty_none)
@@ -423,9 +418,9 @@ def query_meta(
     database_name=META_DATABASE_KEY,
     collection_name=META_COLLECTION_KEY,
 ):
-    db: pymongo.database.Database = client[database_name]
-    col: pymongo.collection.Collection = db[collection_name]
-    cursor: pymongo.cursor.Cursor = col.find(
+    db = client[database_name]
+    col = db[collection_name]
+    cursor = col.find(
         filter=query,
         projection=[f if f in ("_id", "meta_id") else f"{f}.val" for f in fields] if fields is not None else None,
         **(find_kwargs or {}),
@@ -435,11 +430,13 @@ def query_meta(
 
 def query_meta_typed(
     client: pymongo.MongoClient,
-    query={},
+    query=None,
     find_kwargs=None,
-    meta_type: typing.Type[MongoMetaBase] = Meta,
+    meta_type: type[MongoMetaBase] = Meta,
     add_default_query: bool = True,
 ):
+    if not query:
+        query = {}
     yield from map(
         meta_type.from_query,
         query_meta(

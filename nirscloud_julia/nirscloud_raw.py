@@ -28,6 +28,7 @@ def read_nirsraw(
     dtype: Optional[DTypeLike] = np.float32,
     *,
     nirs_hz: Optional[int] = None,
+    contiguous: bool = True,
 ):
     nirsraw = np.loadtxt(fname, delimiter="\t", dtype=dtype)
     ntime, ncol = nirsraw.shape
@@ -44,16 +45,22 @@ def read_nirsraw(
     _idx, raw_data, aux, dark = np.split(nirsraw.T, sections[:-1], axis=0)
     _idx = _idx.squeeze(axis=0)
     assert np.allclose(np.diff(_idx), 1) and _idx[0] == 0
-    ac, dc, phase = raw_data.T.reshape(ntime, ndet, nwavelength, 3).T
+    ac, dc, phase = raw_data.T.reshape(ntime, ndet, nwavelength, 3).transpose((3, 1, 2, 0))
     ds = xr.Dataset(
         {
-            "ac": (("wavelength", "detector", "time"), ac),
-            "dc": (("wavelength", "detector", "time"), dc),
-            "phase": (("wavelength", "detector", "time"), phase),
+            "ac": (("detector", "wavelength", "time"), ac),
+            "dc": (("detector", "wavelength", "time"), dc),
+            "phase": (("detector", "wavelength", "time"), phase),
             "aux": (("detector", "time"), aux),
             "dark": (("detector", "time"), dark),
         }
     )
+    # NOTE: this function is written such that no intermediary arrays are made.
+    #       all arrays, including the result, are just views of the original `nirsraw`
+    if contiguous:
+        # NOTE: because `_idx` was dropped, this should result in less memory used and
+        #       contiguous arrays yield better performance
+        ds = ds.map(np.ascontiguousarray)
     return _add_time_coord(ds, nirs_hz)
 
 

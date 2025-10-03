@@ -11,11 +11,12 @@ def _add_time_coord(ds: xr.Dataset, freq_hz: Optional[int]):
     if freq_hz is None:
         return ds
 
+    ## FIXME: go back to milliseconds by default, once xarray exact alignment works with differing units?
     ## FIXME: swap to microseconds, to support {16, 32, 64, 80} Hz?
-    dt, r = divmod(1_000, freq_hz)
+    dt, r = divmod(1_000_000_000, freq_hz)
     assert r == 0
     ## TODO: replace with a `pd.RangeIndex`?
-    time = np.arange(0, dt * ds.sizes["time"], dt).astype("timedelta64[ms]")
+    time = np.arange(0, dt * ds.sizes["time"], dt).astype("timedelta64[ns]")
     ds.coords["time"] = ["time"], time
     return ds
 

@@ -8,10 +8,10 @@ import pyarrow.dataset as pds
 import xarray as xr
 from fsspec import AbstractFileSystem
 
-from .nirscloud_data import add_meta_coords, nirs_ds_from_table
-from .nirscloud_hdfs import HDFS_PREFIX_DEDUP, HDFS_PREFIX_KAFKA_TOPICS, KAFKA_TOPICS_N
-from .nirscloud_mongo import Meta, NIRSMeta
-from .nirscloud_raw import read_nirsraw
+from .nirscloud_data import add_meta_coords, dcs_ds_from_table, nirs_ds_from_table
+from .nirscloud_hdfs import HDFS_PREFIX_DEDUP, HDFS_PREFIX_KAFKA_TOPICS, KAFKA_TOPICS_D, KAFKA_TOPICS_N
+from .nirscloud_mongo import DCSMeta, Meta, NIRSMeta
+from .nirscloud_raw import read_dcsraw, read_nirsraw
 
 ## After NE136 on 2024-03-27 '/nirscloud/dedup/metaox_nirs_rs/_study_id=CCHU/_group_id=_/_subject_id=NE136/_the_date=2024-03-27/_meta_id=xNR9hfs21EKC2dk782WfTA'
 missing_start_date = datetime.datetime(2024, 3, 27, 11, 16, tzinfo=datetime.UTC)
@@ -89,6 +89,25 @@ def read_nirs_ds_from_meta_raw(meta: NIRSMeta, smb_path: Path):
     return raw_ds
 
 
+def read_dcs_ds_from_meta_raw(meta: DCSMeta, smb_path: Path):
+    if meta.dcsraw_filepath is None:
+        raise ValueError("`meta.dcsraw_filepath` is `None`")
+    elif meta.dcsraw_filepath.parts[:2] != ("/", "smb"):
+        raise ValueError(f'`meta.dcsraw_filepath`({meta.dcsraw_filepath}) doesn\'t start with "/smb/"')
+    dcsraw_filepath = smb_path.joinpath(*meta.dcsraw_filepath.parts[2:])
+
+    if meta.dcs_hz is None:
+        warnings.warn(f"{meta.meta!r}: Missing `meta.dcs_hz`, assuming 50 Hz")
+        dcs_hz = 50
+    elif not meta.dcs_hz.is_integer():
+        raise ValueError(f"`meta.dcs_hz` {meta.dcs_hz} is not an integer")
+    else:
+        dcs_hz = int(meta.dcs_hz)
+
+    raw_ds = read_dcsraw(dcsraw_filepath, dcs_hz=dcs_hz, flipped_banks=meta.flipped_banks)
+    return raw_ds
+
+
 def try_read_nirs_ds_from_meta_inner(fs: AbstractFileSystem, meta: NIRSMeta, smb_path: Path):
     table, missing = try_read_pq_table_from_meta(
         fs, meta, HDFS_PREFIX_DEDUP / KAFKA_TOPICS_N, HDFS_PREFIX_KAFKA_TOPICS / KAFKA_TOPICS_N
@@ -147,3 +166,63 @@ def try_read_nirs_ds_from_meta(fs: AbstractFileSystem, meta: NIRSMeta, smb_path:
     if from_nirsraw:
         warnings.warn(f"{meta.meta!r}: using truncated .nirsraw data in place of missing data")
     return add_meta_coords(ds, meta, nirs_det_dim="detector", metaox_to_rel_time=False)
+
+
+def try_read_dcs_ds_from_meta_inner(fs: AbstractFileSystem, meta: DCSMeta, smb_path: Path):
+    table, missing = try_read_pq_table_from_meta(
+        fs, meta, HDFS_PREFIX_DEDUP / KAFKA_TOPICS_D, HDFS_PREFIX_KAFKA_TOPICS / KAFKA_TOPICS_D
+    )
+    if not missing:
+        raw_ds = dcs_ds_from_table(table, flipped_banks=meta.flipped_banks)
+        ## Need to dedup here, since it may be read from `/kafka/topics/metaox_dcs_s` which has duplicates still
+        return raw_ds.drop_duplicates("time"), False, False
+    elif table:
+        raw_ds = (
+            xr.concat([dcs_ds_from_table(t, flipped_banks=meta.flipped_banks) for t in table], "time", join="outer")
+            .sortby("time")
+            .drop_duplicates("time")
+        )
+        raw_n_time = raw_ds.sizes["time"]
+        if raw_n_time >= meta.n_dcs:
+            if raw_n_time > meta.n_dcs:
+                warnings.warn(f"{meta.meta!r}: Expected {meta.n_dcs} time points, but found {raw_n_time}")
+            return raw_ds, False, False
+    elif meta.dcsraw_filepath is None:
+        raise FileNotFoundError(meta.hdfs)
+    else:
+        raw_ds = None
+
+    if meta.dcsraw_filepath is None:
+        return raw_ds, True, False
+    elif meta.dcsraw_filepath.parts[:2] != ("/", "smb"):
+        warnings.warn(f'{meta.meta!r}: dcsraw_filepath {meta.dcsraw_filepath} doesn\'t start with "/smb"')
+        return raw_ds, True, False
+    dcsraw_ds = read_dcs_ds_from_meta_raw(meta, smb_path)
+    if raw_ds is None:
+        return dcsraw_ds, False, True
+    ## NOTE: drop duplicates before sorting to keep the better numerical values
+    ds = xr.concat([raw_ds, dcsraw_ds], "time", join="outer").drop_duplicates("time", keep="first").sortby("time")
+    return ds, False, True
+
+
+def try_read_dcs_ds_from_meta(fs: AbstractFileSystem, meta: DCSMeta, smb_path: Path):
+    """Read DCS data from the cluster using the redudant non-deduplicated data and falling back to
+    the `.dcsraw` backup on the fileshare to account for partial data after the
+    cluster data loss incident on March 27th 2024
+
+    Parameters
+    ----------
+    fs
+        A wrapped `HdfsFileSystem` to access the cluster
+    meta
+        A mongo document describing the metadata of a measurement
+    smb_path
+        The dcsraw filepath in meta always starts with '/smb/', replace it with `smb_path` pointing towards
+        the mounted location of the fileshare. On our jupyterhub that is '/home'
+    """
+    ds, missing, from_dcsraw = try_read_dcs_ds_from_meta_inner(fs, meta, smb_path)
+    if missing:
+        warnings.warn(f"{meta.meta!r}: missing data")
+    if from_dcsraw:
+        warnings.warn(f"{meta.meta!r}: using truncated .dcsraw data in place of missing data")
+    return add_meta_coords(ds, meta, metaox_to_rel_time=False)

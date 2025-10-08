@@ -131,7 +131,11 @@ class MongoMeta:
                 extra[qk] = qv
             else:
                 k, f = converter
-                qfields[k] = f(qv)
+                try:
+                    qfields[k] = f(qv)
+                except Exception as e:
+                    doc_id = query.get("_id")
+                    raise RuntimeError(f"Failed to parse field {qk!r} with value {qv!r} for document {doc_id!r}") from e
         obj = cls(**{**qdefaults, **qfields})
         obj._extra = extra
         return obj

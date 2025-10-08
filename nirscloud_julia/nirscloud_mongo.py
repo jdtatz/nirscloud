@@ -186,10 +186,23 @@ class Meta(MongoMetaBase, database_name="meta"):
 class FastrakMeta(
     Meta,
     database_name="meta",
-    default_query={"n_fastrak_dedup.val": {"$exists": True}},
+    default_query={
+        "the_type.val": "fastrak",
+        "hdfs_path.val": {"$exists": True},
+        ## TODO: should be just `n_fastrak.val`, but can't break compat
+        "n_fastrak_dedup.val": {"$exists": True},
+        ## FIXME: handle this by mapping it to `None`
+        "note_id.val": {"$ne": ""},
+    },
     kafka_topics=["fastrak_cm_s", "fastrak2_s"],
 ):
     is_cm: bool = query_field("is_fastrak_cm", bool, default=False)
+    n_fastrak: int = query_field("n_fastrak", int)
+    n_fastrak_dedup: Optional[int] = query_field("n_fastrak_dedup", int, default=None)
+    is_dedup_n_fastrak: bool = query_field("is_dedup_n_fastrak", bool, default=False)
+    is_agg_n_fastrak: bool = query_field("is_agg_n_fastrak", bool, default=False)
+    n_fastrak_min_part: Optional[int] = query_field("n_fastrak_min_part", int, default=None)
+    n_fastrak_max_part: Optional[int] = query_field("n_fastrak_max_part", int, default=None)
 
 
 class MetaOxMeta(

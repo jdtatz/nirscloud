@@ -40,6 +40,10 @@ def _to_datetime64_ns(v: Any) -> np.datetime64:
         return np.datetime64("NaT", "ns")
 
 
+def _try_to_meta_id(v: Any) -> Optional[MetaID]:
+    return None if v == "" else MetaID.from_stripped_base64(v)
+
+
 def _projection_index(v: dict, projection_key: str):
     for k in projection_key.split("."):
         v = v[k]
@@ -158,7 +162,7 @@ class Meta(MongoMetaBase, database_name="meta"):
     subject: str = query_field("subject_id", str)
 
     group: Optional[str] = query_field("group_id", str, default=None)
-    note_meta: Optional[MetaID] = query_field("note_id", MetaID.from_stripped_base64, default=None)
+    note_meta: Optional[MetaID] = query_field("note_id", _try_to_meta_id, default=None)
     measurement_notes: Optional[str] = query_field("note", str, default=None)
     postfix: Optional[str] = query_field("postfix_id", str, default=None)
     session: Optional[str] = query_field("session_id", str, default=None)
@@ -191,8 +195,6 @@ class FastrakMeta(
         "hdfs_path.val": {"$exists": True},
         ## TODO: should be just `n_fastrak.val`, but can't break compat
         "n_fastrak_dedup.val": {"$exists": True},
-        ## FIXME: handle this by mapping it to `None`
-        "note_id.val": {"$ne": ""},
     },
     kafka_topics=["fastrak_cm_s", "fastrak2_s"],
 ):

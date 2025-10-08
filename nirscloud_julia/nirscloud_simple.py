@@ -60,7 +60,7 @@ def read_nirs_ds_from_meta(client: WebHDFS[httpx.Client], meta: NIRSMeta):
 
 def read_dcs_ds_from_meta(client: WebHDFS[httpx.Client], meta: DCSMeta):
     table = read_table_from_meta(client, meta, *HDFS_DCS_PREFIXES)
-    ds = dcs_ds_from_table(table)
+    ds = dcs_ds_from_table(table, flipped_banks=meta.flipped_banks)
     return add_meta_coords(ds, meta)
 
 

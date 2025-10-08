@@ -287,7 +287,7 @@ def nirs_ds_from_table(table: pa.Table, *, nirs_det_dim: str = "rho"):
     return ds
 
 
-def dcs_ds_from_table(table: pa.Table):
+def dcs_ds_from_table(table: pa.Table, *, flipped_banks: Optional[bool] = None):
     tau = _from_chunked_array(table["t"])
     # assert np.unique(tau, axis=0).shape[0] == 1
     time, start = _offset_time_from_table(table)
@@ -307,6 +307,15 @@ def dcs_ds_from_table(table: pa.Table):
     )
     if start is not None:
         ds.attrs["dcs_start_time"] = start
+    if flipped_banks is not None:
+        if flipped_banks:
+            assert ds.sizes["channel"] == 8
+            ds = ds.roll({"channel": 4})
+        ## NOTE: the channel coordinate is only added if it's known if the banks were flipped or not
+        # ds = ds.assign_coords(channel=(["channel"], np.arange(1, 1 + ds.sizes["channel"])))
+        ds = ds.assign_coords(
+            xr.Coordinates.from_xindex(xr.indexes.PandasIndex(pd.RangeIndex(1, 1 + ds.sizes["channel"]), "channel"))
+        )
     return ds
 
 

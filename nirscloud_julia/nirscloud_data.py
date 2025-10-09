@@ -191,24 +191,24 @@ def add_meta_coords(ds: xr.Dataset, meta: Meta, *, nirs_det_dim: str = "rho", me
     return ds.assign_coords(coords)
 
 
-def _chunked_shape(array: np.ndarray):
-    if array.dtype.kind != "O":
-        return array.shape
-    return (*array.shape, *_chunked_shape(array[0]))
+def _pa_scalar_shape(v: pa.Scalar):
+    from collections.abc import Sequence
 
-
-def _chunked_conc(array: np.ndarray):
-    if array.dtype.kind != "O":
-        return array
-    return _chunked_conc(np.concatenate(array, axis=None))
+    if isinstance(v, Sequence):
+        return (len(v), *_pa_scalar_shape(v[0]))
+    else:
+        return ()
 
 
 def _from_chunked_array(carray: pa.ChunkedArray) -> np.ndarray:
-    array = carray.to_numpy()
-    if not pa.types.is_nested(carray.type):
-        return array
-    shape = _chunked_shape(array)
-    return _chunked_conc(array).reshape(shape)
+    # TODO: remove this workaround once `pa.StringArray.to_numpy()` no longer yields an object array
+    if pa.types.is_string(carray.type):
+        return np.array(carray.to_pylist())
+    if pa.types.is_nested(carray.type):
+        shape = (len(carray), *_pa_scalar_shape(carray[0]))
+        return carray.combine_chunks().flatten(recursive=True).to_numpy().reshape(shape)
+    else:
+        return carray.to_numpy()
 
 
 def _unique_squeezed_attr_or_drop(da: xr.DataArray):

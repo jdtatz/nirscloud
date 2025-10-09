@@ -225,7 +225,7 @@ class MetaOxMeta(
     dcs_hz: Optional[Real] = query_field("dcs_hz", _to_real, default=None)
     gains: Optional[tuple[Real, ...]] = query_field("gains", tuple, default=None)
     is_radian: bool = query_field("is_nirs_radian_single", bool, default=False)
-    flipped_banks: Optional[bool] = query_field("dcs_is_flipped", bool)
+    flipped_banks: Optional[bool] = query_field("dcs_is_flipped", bool, default=None)
     duration: Optional[datetime.timedelta] = query_field(
         "duration", lambda v: datetime.timedelta(seconds=float(v)), default=None
     )

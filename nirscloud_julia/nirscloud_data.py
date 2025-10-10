@@ -1,5 +1,5 @@
 from pathlib import PosixPath
-from typing import Optional
+from typing import Literal, Optional
 import warnings
 
 import numpy as np
@@ -230,32 +230,34 @@ def _time_from_table(table: pa.Table):
         raise KeyError(f"No known time column, `_nano_ts` or `_milli_ts`, found in the table. [{table.column_names}]")
 
 
-def _offset_time_from_table(table: pa.Table):
+def _start_from_ts_td(ts, dt, prefer_rela: bool = True):
+    start_ts_vals = np.unique_values(ts - dt)
+    if start_ts_vals.size > 1:
+        ## NOTE: this should never happen
+        raise ValueError("Inconsistent timestamp vs timedelta")
+    (start_ts,) = start_ts_vals
+    return dt if prefer_rela else ts, start_ts
+
+
+def _offset_time_from_table(table: pa.Table, prefer_rela: bool = True):
     if "_offset_nano_ts" in table.column_names and "_nano_ts" in table.column_names:
-        time = _from_chunked_array(table["_offset_nano_ts"]).astype("timedelta64[ns]")
-        ## TODO: loading the entire array and checking it is overkill
-        ts = _from_chunked_array(table["_nano_ts"]).astype("datetime64[ns]")
-        start_ts_vals = np.unique_values(ts - time)
-        if start_ts_vals.size > 1:
-            ## NOTE: this should never happen
-            raise ValueError("Inconsistent timestamp vs timedelta")
-        (start_ts,) = start_ts_vals
-        return time, start_ts
+        ## TODO: loading both arrays in their entirety for checking is overkill
+        return _start_from_ts_td(
+            _from_chunked_array(table["_nano_ts"]).astype("datetime64[ns]"),
+            _from_chunked_array(table["_offset_nano_ts"]).astype("timedelta64[ns]"),
+            prefer_rela=prefer_rela,
+        )
     elif "_offset_nano_ts" in table.column_names:
         return _from_chunked_array(table["_offset_nano_ts"]).astype("timedelta64[ns]"), None
     elif "_nano_ts" in table.column_names:
         return _from_chunked_array(table["_nano_ts"]).astype("datetime64[ns]"), None
     ## TODO: find if "_offset_milli_ts" is used anywhere
     elif "_offset_milli_ts" in table.column_names and "_milli_ts" in table.column_names:
-        time = _from_chunked_array(table["_offset_milli_ts"]).astype("timedelta64[ms]")
-        ## TODO: loading the entire array and checking it is overkill
-        ts = _from_chunked_array(table["_milli_ts"]).astype("datetime64[ms]")
-        start_ts_vals = np.unique_values(ts - time)
-        if start_ts_vals.size > 1:
-            ## NOTE: this should never happen
-            raise ValueError("Incomsistent timestamp vs timedelta")
-        (start_ts,) = start_ts_vals
-        return time, start_ts
+        return _start_from_ts_td(
+            _from_chunked_array(table["_milli_ts"]).astype("datetime64[ms]"),
+            _from_chunked_array(table["_offset_milli_ts"]).astype("timedelta64[ms]"),
+            prefer_rela=prefer_rela,
+        )
     elif "_offset_milli_ts" in table.column_names:
         return _from_chunked_array(table["_offset_milli_ts"]).astype("timedelta64[ms]"), None
     elif "_milli_ts" in table.column_names:
@@ -319,17 +321,21 @@ def dcs_ds_from_table(table: pa.Table, *, flipped_banks: Optional[bool] = None):
     return ds
 
 
-def fastrak_ds_from_table(table: pa.Table):
+def fastrak_stacked_ds_from_table(table: pa.Table, *, scalar_first: bool = False):
     # idx=0 is always the pen, idx=1 is always the nirs sensor, and if idx=2 exists then it's the head sensor (refrence point for dual-quat transformation)
     from scipy.spatial.transform import Rotation
 
     cartesian_axes = "x", "y", "z"
     euler_axes = "a", "e", "r"
-    quaternion_axes = "w", "x", "y", "z"
+    quaternion_axes = ("w", "x", "y", "z") if scalar_first else ("x", "y", "z", "w")
 
+    # Fasktrak may be at 60HZ, but our data has large gaps, so a modifed timedelta RangeIndex isn't applicable
+    time, start = _offset_time_from_table(table, prefer_rela=False)
     position = np.stack([_from_chunked_array(table[c]) for c in cartesian_axes], axis=0)
     angles = np.stack([_from_chunked_array(table[c]) for c in euler_axes], axis=1)
-    orientation = np.roll(Rotation.from_euler("ZYX", angles, degrees=True).as_quat().transpose(), 1, axis=0)
+    orientation = Rotation.from_euler("ZYX", angles, degrees=True).as_quat().T
+    if scalar_first:
+        orientation = np.roll(orientation, 1, axis=0)
     ds = xr.Dataset(
         data_vars={
             "position": (("cartesian_axes", "stacked"), position),
@@ -337,13 +343,54 @@ def fastrak_ds_from_table(table: pa.Table):
         },
         coords={
             "idx": ("stacked", _from_chunked_array(table["idx"])),
-            "time": ("stacked", _time_from_table(table)),
+            "list_id": ("stacked", _from_chunked_array(table["list_id"])),
+            "time": ("stacked", time),
             "cartesian_axes": ("cartesian_axes", list(cartesian_axes)),
             "quaternion_axes": ("quaternion_axes", list(quaternion_axes)),
         },
     )
-    ds = ds.set_index(stacked=["time", "idx"]).unstack("stacked").transpose("idx", ..., "time")
+    if start is not None:
+        ds.attrs["fastrak_start_time"] = start
+    return ds
+
+
+def unstack_fastrak_stacked_ds(
+    stacked_ds: xr.Dataset,
+    *,
+    keep: Literal["first", "last"] = "first",
+    join: Literal["outer", "inner", "exact"] = "outer",
+):
+    n0 = stacked_ds.sizes["stacked"]
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message=".*Try using swap_dims instead.*")
+        deduped_grps = [
+            ds.drop_vars("idx")
+            .assign_coords(idx=idx)
+            .sortby(["time", "list_id"])
+            # FIXME: this will warn and suggest swap_dims, but that's broken for this use-case https://github.com/pydata/xarray/issues/8646
+            .rename({"stacked": "time"})
+            .set_xindex("time")
+            .drop_duplicates("time", keep=keep)
+            .drop_vars("list_id")
+            for idx, ds in stacked_ds.groupby("idx")
+        ]
+    n2 = sum(d.sizes["time"] for d in deduped_grps)
+    ds = xr.concat(deduped_grps, "idx", coords=[], join=join, compat="identical", combine_attrs="identical")
+    if n0 > n2:
+        warnings.warn(f"{n0 - n2} duplicate time points were dropped", stacklevel=2)
+    # TODO: is a seconding sorting required?
     return ds.sortby("time")
+
+
+def fastrak_ds_from_table(
+    table: pa.Table,
+    *,
+    scalar_first: bool = True,
+    keep: Literal["first", "last"] = "first",
+    join: Literal["outer", "inner", "exact"] = "outer",
+):
+    stacked_ds = fastrak_stacked_ds_from_table(table, scalar_first=scalar_first)
+    return unstack_fastrak_stacked_ds(stacked_ds, keep=keep, join=join)
 
 
 def finapres_ds_from_table(table: pa.Table):

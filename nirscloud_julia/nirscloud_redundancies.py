@@ -8,9 +8,22 @@ import pyarrow.dataset as pds
 import xarray as xr
 from fsspec import AbstractFileSystem
 
-from .nirscloud_data import add_meta_coords, dcs_ds_from_table, nirs_ds_from_table
-from .nirscloud_hdfs import HDFS_PREFIX_DEDUP, HDFS_PREFIX_KAFKA_TOPICS, KAFKA_TOPICS_D, KAFKA_TOPICS_N
-from .nirscloud_mongo import DCSMeta, Meta, NIRSMeta
+from .nirscloud_data import (
+    add_meta_coords,
+    dcs_ds_from_table,
+    fastrak_stacked_ds_from_table,
+    nirs_ds_from_table,
+)
+from .nirscloud_hdfs import (
+    HDFS_PREFIX_AGG,
+    HDFS_PREFIX_DEDUP,
+    HDFS_PREFIX_KAFKA_TOPICS,
+    KAFKA_TOPICS_D,
+    KAFKA_TOPICS_FT,
+    KAFKA_TOPICS_FT_CM,
+    KAFKA_TOPICS_N,
+)
+from .nirscloud_mongo import DCSMeta, FastrakMeta, Meta, NIRSMeta
 from .nirscloud_raw import read_dcsraw, read_nirsraw
 
 ## After NE136 on 2024-03-27 '/nirscloud/dedup/metaox_nirs_rs/_study_id=CCHU/_group_id=_/_subject_id=NE136/_the_date=2024-03-27/_meta_id=xNR9hfs21EKC2dk782WfTA'
@@ -226,3 +239,39 @@ def try_read_dcs_ds_from_meta(fs: AbstractFileSystem, meta: DCSMeta, smb_path: P
     if from_dcsraw:
         warnings.warn(f"{meta.meta!r}: using truncated .dcsraw data in place of missing data")
     return add_meta_coords(ds, meta, metaox_to_rel_time=False)
+
+
+def try_read_fastrak_stacked_ds_from_meta(fs: AbstractFileSystem, meta: FastrakMeta, *, scalar_first: bool = False):
+    table, missing = try_read_pq_table_from_meta(
+        fs,
+        meta,
+        *(prefix / KAFKA_TOPICS_FT_CM for prefix in (HDFS_PREFIX_AGG, HDFS_PREFIX_DEDUP, HDFS_PREFIX_KAFKA_TOPICS)),
+        *(prefix / KAFKA_TOPICS_FT for prefix in (HDFS_PREFIX_AGG, HDFS_PREFIX_DEDUP, HDFS_PREFIX_KAFKA_TOPICS)),
+        # FIXME: some data can exist in multiple kafka topics and can't be mixed
+        # *(prefix / "fastrak_s" for prefix in (HDFS_PREFIX_DEDUP, HDFS_PREFIX_KAFKA_TOPICS)),
+    )
+    if not missing:
+        return fastrak_stacked_ds_from_table(table, scalar_first=scalar_first)
+    elif table:
+        raw_ds = (
+            xr.concat(
+                [fastrak_stacked_ds_from_table(t, scalar_first=scalar_first) for t in table],
+                "stacked",
+                join="outer",
+            )
+            .sortby(["idx", "time", "list_id"])
+            # TODO: do this without a multi-index
+            .set_index(stacked=["idx", "time", "list_id"])
+            .drop_duplicates("stacked")
+            .reset_index("stacked")
+        )
+        raw_n_fastrak = raw_ds.sizes["stacked"]
+        if raw_n_fastrak >= meta.n_fastrak:
+            if raw_n_fastrak > meta.n_fastrak:
+                warnings.warn(f"{meta.meta!r}: Expected {meta.n_fastrak} points, but found {raw_n_fastrak}")
+            return raw_ds
+        else:
+            warnings.warn(f"{meta.meta!r}: Missing data, expected {meta.n_fastrak} points, but found {raw_n_fastrak}")
+            return raw_ds
+    else:
+        raise FileNotFoundError(meta.hdfs)

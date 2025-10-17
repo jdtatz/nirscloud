@@ -73,8 +73,16 @@ def try_read_pq_table(fs: AbstractFileSystem, *dir_paths: str | PurePosixPath):
     return [read_pq_table(fs, dir_path) for dir_path in incomplete_dir_paths], True
 
 
-def try_read_pq_table_from_meta(fs: AbstractFileSystem, meta: Meta, *hdfs_prefix_options: PurePosixPath):
-    return try_read_pq_table(fs, *(prefix / meta.hdfs for prefix in hdfs_prefix_options))
+_HDFS_BASE_PREFIXES = HDFS_PREFIX_DEDUP, HDFS_PREFIX_KAFKA_TOPICS
+
+
+def try_read_pq_table_from_meta(
+    fs: AbstractFileSystem,
+    meta: Meta,
+    kafka_topic: str,
+    hdfs_prefix_options: tuple[PurePosixPath, ...] = _HDFS_BASE_PREFIXES,
+):
+    return try_read_pq_table(fs, *(prefix / kafka_topic / meta.hdfs for prefix in hdfs_prefix_options))
 
 
 def read_nirs_ds_from_meta_raw(meta: NIRSMeta, smb_path: Path):
@@ -122,9 +130,7 @@ def read_dcs_ds_from_meta_raw(meta: DCSMeta, smb_path: Path):
 
 
 def try_read_nirs_ds_from_meta_inner(fs: AbstractFileSystem, meta: NIRSMeta, smb_path: Path):
-    table, missing = try_read_pq_table_from_meta(
-        fs, meta, HDFS_PREFIX_DEDUP / KAFKA_TOPICS_N, HDFS_PREFIX_KAFKA_TOPICS / KAFKA_TOPICS_N
-    )
+    table, missing = try_read_pq_table_from_meta(fs, meta, KAFKA_TOPICS_N)
     if not missing:
         raw_ds = nirs_ds_from_table(table, nirs_det_dim="detector")
         ## Need to dedup here, since it may be read from `/kafka/topics/metaox_nirs_rs` which has duplicates still
@@ -182,9 +188,7 @@ def try_read_nirs_ds_from_meta(fs: AbstractFileSystem, meta: NIRSMeta, smb_path:
 
 
 def try_read_dcs_ds_from_meta_inner(fs: AbstractFileSystem, meta: DCSMeta, smb_path: Path):
-    table, missing = try_read_pq_table_from_meta(
-        fs, meta, HDFS_PREFIX_DEDUP / KAFKA_TOPICS_D, HDFS_PREFIX_KAFKA_TOPICS / KAFKA_TOPICS_D
-    )
+    table, missing = try_read_pq_table_from_meta(fs, meta, KAFKA_TOPICS_D)
     if not missing:
         raw_ds = dcs_ds_from_table(table, flipped_banks=meta.flipped_banks)
         ## Need to dedup here, since it may be read from `/kafka/topics/metaox_dcs_s` which has duplicates still
@@ -242,17 +246,17 @@ def try_read_dcs_ds_from_meta(fs: AbstractFileSystem, meta: DCSMeta, smb_path: P
 
 
 def try_read_fastrak_stacked_ds_from_meta(fs: AbstractFileSystem, meta: FastrakMeta, *, scalar_first: bool = False):
-    table, missing = try_read_pq_table_from_meta(
-        fs,
-        meta,
-        *(prefix / KAFKA_TOPICS_FT_CM for prefix in (HDFS_PREFIX_AGG, HDFS_PREFIX_DEDUP, HDFS_PREFIX_KAFKA_TOPICS)),
-        *(prefix / KAFKA_TOPICS_FT for prefix in (HDFS_PREFIX_AGG, HDFS_PREFIX_DEDUP, HDFS_PREFIX_KAFKA_TOPICS)),
-        # FIXME: some data can exist in multiple kafka topics and can't be mixed
-        # *(prefix / "fastrak_s" for prefix in (HDFS_PREFIX_DEDUP, HDFS_PREFIX_KAFKA_TOPICS)),
-    )
-    if not missing:
+    table, missing = try_read_pq_table_from_meta(fs, meta, KAFKA_TOPICS_FT_CM, (HDFS_PREFIX_AGG, *_HDFS_BASE_PREFIXES))
+    if missing and not table:
+        table, missing = try_read_pq_table_from_meta(fs, meta, KAFKA_TOPICS_FT, (HDFS_PREFIX_AGG, *_HDFS_BASE_PREFIXES))
+    if missing and not table:
+        # FIXME: data in the "fastrak_s" topic doesn't have the "list_id" variable
+        table, missing = try_read_pq_table_from_meta(fs, meta, "fastrak_s")
+    if missing and not table:
+        raise FileNotFoundError(meta.hdfs)
+    elif not missing:
         return fastrak_stacked_ds_from_table(table, scalar_first=scalar_first)
-    elif table:
+    else:
         raw_ds = (
             xr.concat(
                 [fastrak_stacked_ds_from_table(t, scalar_first=scalar_first) for t in table],
@@ -273,5 +277,3 @@ def try_read_fastrak_stacked_ds_from_meta(fs: AbstractFileSystem, meta: FastrakM
         else:
             warnings.warn(f"{meta.meta!r}: Missing data, expected {meta.n_fastrak} points, but found {raw_n_fastrak}")
             return raw_ds
-    else:
-        raise FileNotFoundError(meta.hdfs)

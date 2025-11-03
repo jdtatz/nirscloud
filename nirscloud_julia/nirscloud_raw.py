@@ -71,15 +71,17 @@ def read_dcsraw(
     flipped_banks: Optional[bool] = None,
     dcs_hz: Optional[int] = None,
 ):
-    _cps = []
     with open(fname, "r") as f:
-        for line in f.readlines():
-            if line.startswith("CPS"):
-                _, *_r_cps = line.strip().split("\t")
-                _cps.append([int(v) for v in _r_cps])
-    ## NOTE: create the array as F-contiguous, so the transpose will be C-contiguous
-    cps = np.array(_cps, order="F").T
-    data = np.loadtxt(fname, delimiter="\t", comments="CPS", dtype=dtype).reshape((cps.shape[1], -1, 1 + cps.shape[0]))
+        cps = np.loadtxt(
+            (line.removeprefix("CPS\t") for line in f.readlines() if line.startswith("CPS")),
+            delimiter="\t",
+            dtype=np.int64,
+            ndmin=2,
+        )
+    ## NOTE: move time dim to end to speed-up computation
+    cps = np.ascontiguousarray(cps.T)
+    nchan, ntime = cps.shape
+    data = np.loadtxt(fname, delimiter="\t", comments="CPS", dtype=dtype, ndmin=2).reshape((ntime, -1, 1 + nchan))
     ## NOTE: move time dim to end to speed-up computation
     data = np.ascontiguousarray(data.T)
     tau_0 = np.ascontiguousarray(data[0, :, 0])

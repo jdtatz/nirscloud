@@ -45,7 +45,7 @@ def has_missing_data(fs: AbstractFileSystem, dir_path: str | PurePosixPath):
 
 read_pq_dataset = partial(
     pds.dataset,
-    format="parquet",
+    format=pds.ParquetFileFormat(read_options={"list_type": pa.LargeListType}),
     ignore_prefixes=["."],
 )
 

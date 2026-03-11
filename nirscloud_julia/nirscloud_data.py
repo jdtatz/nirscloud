@@ -1,6 +1,7 @@
+import warnings
+from functools import partial
 from pathlib import PosixPath
 from typing import Literal, Optional
-import warnings
 
 import numpy as np
 import pandas as pd
@@ -321,21 +322,82 @@ def dcs_ds_from_table(table: pa.Table, *, flipped_banks: Optional[bool] = None):
     return ds
 
 
-def fastrak_stacked_ds_from_table(table: pa.Table, *, scalar_first: bool = False):
+def fastrak_raw_stacked_ds_from_table(table: pa.Table, *, prefer_timedelta: bool = False):
     # idx=0 is always the pen, idx=1 is always the nirs sensor, and if idx=2 exists then it's the head sensor (refrence point for dual-quat transformation)
+
+    # Fasktrak may be at 60HZ, but our data has large gaps, so a modifed timedelta RangeIndex isn't applicable
+    time, start = _offset_time_from_table(table, prefer_rela=prefer_timedelta)
+    ds = xr.Dataset(
+        data_vars={c: (("stacked",), _from_chunked_array(table[c])) for c in ("x", "y", "z", "a", "e", "r")},
+        coords={
+            "idx": ("stacked", _from_chunked_array(table["idx"])),
+            "list_id": ("stacked", _from_chunked_array(table["list_id"])),
+            "time": ("stacked", time),
+        },
+    )
+    if start is not None:
+        ds.attrs["fastrak_start_time"] = start
+    return ds
+
+
+def _stack_dataset_vars(ds: xr.Dataset, *dvars: str, dim: str, axis: Literal[0, -1] = 0):
+    if dim in ds.dims:
+        raise ValueError(f"{dim!r} is not a new dim")
+    if axis not in (0, -1):
+        raise NotImplementedError
+    if len(dvars) == 0:
+        raise ValueError("no variables specified")
+
+    ds = ds[list(dvars)]
+    if axis == 0:
+        stacked = ds.to_dataarray(dim)
+        # FIXME: `xr.Dataset.to_dataarray` only uses the Datasets attrs instead of the variables attrs
+        stacked = stacked.drop_attrs().assign_attrs(**ds[dvars[0]].attrs)
+    else:
+        stacked = ds.to_stacked_array("variable", ds.dims, dim)
+        # FIXME: `xr.DataArray.unstack` modifies the array's data even if the multi-index has only a single level
+        # stacked = stacked.unstack("variable")
+        stacked = stacked.reset_index("variable").set_xindex(dim).swap_dims({"variable": dim})
+    assert tuple(stacked.coords[dim].values) == dvars
+    return stacked
+
+
+def _euler_to_quat(seq: str, angles, *, degrees: bool = False, canonical: bool = False, scalar_first: bool = False):
     from scipy.spatial.transform import Rotation
 
+    return Rotation.from_euler(seq, angles, degrees=degrees).as_quat(canonical=canonical, scalar_first=scalar_first)
+
+
+def convert_raw_fastrak_ds(
+    raw_ds: xr.Dataset, *, canonical: bool = False, scalar_first: bool = False, transpose: bool = False
+):
+    position = _stack_dataset_vars(raw_ds, "x", "y", "z", dim="cartesian_axes", axis=0 if transpose else -1)
+    orientation = xr.apply_ufunc(
+        partial(_euler_to_quat, "ZYX", degrees=True, canonical=canonical, scalar_first=scalar_first),
+        _stack_dataset_vars(raw_ds, "a", "e", "r", dim="euler_axes", axis=-1),
+        input_core_dims=(("euler_axes",),),
+        output_core_dims=(("quaternion_axes",),),
+        dask="allowed",
+        keep_attrs=False,
+    ).assign_coords(
+        quaternion_axes=(("quaternion_axes",), ["w", "x", "y", "z"] if scalar_first else ["x", "y", "z", "w"])
+    )
+    if transpose:
+        orientation = orientation.transpose("quaternion_axes", ...)
+    return xr.Dataset({"position": position, "orientation": orientation})
+
+
+def fastrak_stacked_ds_from_table(table: pa.Table, *, prefer_timedelta: bool = False, scalar_first: bool = False):
+    # idx=0 is always the pen, idx=1 is always the nirs sensor, and if idx=2 exists then it's the head sensor (refrence point for dual-quat transformation)
     cartesian_axes = "x", "y", "z"
     euler_axes = "a", "e", "r"
     quaternion_axes = ("w", "x", "y", "z") if scalar_first else ("x", "y", "z", "w")
 
     # Fasktrak may be at 60HZ, but our data has large gaps, so a modifed timedelta RangeIndex isn't applicable
-    time, start = _offset_time_from_table(table, prefer_rela=False)
+    time, start = _offset_time_from_table(table, prefer_rela=prefer_timedelta)
     position = np.stack([_from_chunked_array(table[c]) for c in cartesian_axes], axis=0)
     angles = np.stack([_from_chunked_array(table[c]) for c in euler_axes], axis=1)
-    orientation = Rotation.from_euler("ZYX", angles, degrees=True).as_quat().T
-    if scalar_first:
-        orientation = np.roll(orientation, 1, axis=0)
+    orientation = _euler_to_quat("ZYX", angles, degrees=True, scalar_first=scalar_first).T
     ds = xr.Dataset(
         data_vars={
             "position": (("cartesian_axes", "stacked"), position),

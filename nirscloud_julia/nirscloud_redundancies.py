@@ -11,6 +11,7 @@ from fsspec import AbstractFileSystem
 from .nirscloud_data import (
     add_meta_coords,
     dcs_ds_from_table,
+    fastrak_raw_stacked_ds_from_table,
     fastrak_stacked_ds_from_table,
     nirs_ds_from_table,
 )
@@ -245,7 +246,19 @@ def try_read_dcs_ds_from_meta(fs: AbstractFileSystem, meta: DCSMeta, smb_path: P
     return add_meta_coords(ds, meta, metaox_to_rel_time=False)
 
 
-def try_read_fastrak_stacked_ds_from_meta(fs: AbstractFileSystem, meta: FastrakMeta, *, scalar_first: bool = False):
+def try_read_fastrak_stacked_ds_from_meta(
+    fs: AbstractFileSystem,
+    meta: FastrakMeta,
+    *,
+    raw: bool = False,
+    prefer_timedelta: bool = False,
+    scalar_first: bool = False,
+):
+    stacked_ds_from_table = (
+        partial(fastrak_raw_stacked_ds_from_table, prefer_timedelta=prefer_timedelta)
+        if raw
+        else partial(fastrak_stacked_ds_from_table, scalar_first=scalar_first, prefer_timedelta=prefer_timedelta)
+    )
     table, missing = try_read_pq_table_from_meta(fs, meta, KAFKA_TOPICS_FT_CM, (HDFS_PREFIX_AGG, *_HDFS_BASE_PREFIXES))
     if missing and not table:
         table, missing = try_read_pq_table_from_meta(fs, meta, KAFKA_TOPICS_FT, (HDFS_PREFIX_AGG, *_HDFS_BASE_PREFIXES))
@@ -255,14 +268,10 @@ def try_read_fastrak_stacked_ds_from_meta(fs: AbstractFileSystem, meta: FastrakM
     if missing and not table:
         raise FileNotFoundError(meta.hdfs)
     elif not missing:
-        return fastrak_stacked_ds_from_table(table, scalar_first=scalar_first)
+        return stacked_ds_from_table(table)
     else:
         raw_ds = (
-            xr.concat(
-                [fastrak_stacked_ds_from_table(t, scalar_first=scalar_first) for t in table],
-                "stacked",
-                join="outer",
-            )
+            xr.concat([stacked_ds_from_table(t) for t in table], "stacked", join="outer")
             .sortby(["idx", "time", "list_id"])
             # TODO: do this without a multi-index
             .set_index(stacked=["idx", "time", "list_id"])

@@ -18,6 +18,7 @@ dependencies = [
     "httpx_gssapi>=0.1.7",
     "pyarrow>=12",
     "fsspec",
+    "metaox_parser@git+https://github.com/jdtatz/metaox_parser.git",
 ]
 
 [tool.black]

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nirscloud_legacy"
-authors = [{name = "Julia Tatz", email = "julia.tatz@childrens.harvard.edu"}]
+authors = [{ name = "Julia Tatz", email = "julia.tatz@childrens.harvard.edu" }]
 requires-python = ">=3.13"
 dynamic = ["version"]
 dependencies = [
@@ -17,23 +17,65 @@ dependencies = [
     "metaox_parser@git+https://github.com/jdtatz/metaox_parser.git",
 ]
 
-[tool.black]
-line-length = 120
-target-version = ['py37']
-include = '\.pyi?$'
-
-[tool.isort]
-profile = "black"
-
-[tool.mypy]
-python_version = "3.9"
-
 [tool.setuptools_scm]
 write_to = "nirscloud_legacy/_version.py"
 
-[tool.pdm.dev-dependencies]
-dev = [
-    "black>=22.8.0",
-    "mypy>=0.982",
-    "isort>=5.10.1",
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+# https://docs.astral.sh/ruff/rules/
+extend-select = [
+    # pycodestyle
+    "E",
+    # Pyflakes
+    "F",
+    # Pylint
+    "PL",
+    # pyupgrade
+    "UP",
+    # Ruff-specific rules
+    "RUF",
+    # NumPy-specific rules
+    "NPY",
+    # flake8-bugbear
+    "B",
+    # flake8-comprehensions
+    "C4",
+    # flake8-boolean-trap
+    "FBT",
+    # flake8-return
+    "RET",
+    # flake8-simplify
+    "SIM",
+    # isort
+    "I",
+]
+ignore = [
+    # multiple-leading-hashes-for-block-comment
+    "E266",
+    # line-too-long
+    "E501",
+    # no-explicit-stacklevel
+    "B028",
+    # redundant-open-modes
+    "UP015",
+    # non-pep604-annotation-optional
+    "UP045",
+    # non-pep695-generic-function
+    "UP047",
+    # unnecessary-assign
+    "RET504",
+    # superfluous-else-return 
+    "RET505",
+    # superfluous-else-raise
+    "RET506",
+    # too-many-branches
+    "PLR0912",
+    # too-many-arguments 
+    "PLR0913",
+    # too-many-statements
+    "PLR0915",
+    # magic-value-comparison
+    "PLR2004",
 ]

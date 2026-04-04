@@ -62,7 +62,7 @@ def read_pq_table(fs: AbstractFileSystem, dir_path: str | PurePosixPath) -> pa.T
 def try_read_pq_table(fs: AbstractFileSystem, *dir_paths: str | PurePosixPath):
     incomplete_dir_paths = []
     for dir_path in dir_paths:
-        dir_path = str(dir_path)
+        dir_path = str(dir_path)  # noqa: PLW2901
         if not fs.exists(dir_path):
             continue
         if has_missing_data(fs, dir_path):

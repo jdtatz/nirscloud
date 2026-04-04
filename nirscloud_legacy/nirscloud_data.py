@@ -1,4 +1,5 @@
 import warnings
+from collections.abc import Sequence
 from functools import partial
 from pathlib import PosixPath
 from typing import Literal, Optional
@@ -7,6 +8,7 @@ import numpy as np
 import pandas as pd
 import pyarrow as pa
 import xarray as xr
+from scipy.spatial.transform import Rotation
 
 from .nirscloud_mongo import (
     DCSMeta,
@@ -183,8 +185,10 @@ def add_meta_coords(ds: xr.Dataset, meta: Meta, *, nirs_det_dim: str = "rho", me
             position = position * 2.54
         ds = ds.assign(position=position.assign_attrs(units="cm"))
     elif isinstance(meta, FinapresMeta):
+        # TODO: timezone fixup
         pass
     elif isinstance(meta, PatientMonitorMeta):
+        # TODO
         pass
     else:
         # raise TypeError
@@ -193,8 +197,6 @@ def add_meta_coords(ds: xr.Dataset, meta: Meta, *, nirs_det_dim: str = "rho", me
 
 
 def _pa_scalar_shape(v: pa.Scalar):
-    from collections.abc import Sequence
-
     if isinstance(v, Sequence):
         return (len(v), *_pa_scalar_shape(v[0]))
     else:
@@ -231,7 +233,7 @@ def _time_from_table(table: pa.Table):
         raise KeyError(f"No known time column, `_nano_ts` or `_milli_ts`, found in the table. [{table.column_names}]")
 
 
-def _start_from_ts_td(ts, dt, prefer_rela: bool = True):
+def _start_from_ts_td(ts, dt, *, prefer_rela: bool = True):
     start_ts_vals = np.unique_values(ts - dt)
     if start_ts_vals.size > 1:
         ## NOTE: this should never happen
@@ -240,7 +242,7 @@ def _start_from_ts_td(ts, dt, prefer_rela: bool = True):
     return dt if prefer_rela else ts, start_ts
 
 
-def _offset_time_from_table(table: pa.Table, prefer_rela: bool = True):
+def _offset_time_from_table(table: pa.Table, *, prefer_rela: bool = True):
     if "_offset_nano_ts" in table.column_names and "_nano_ts" in table.column_names:
         ## TODO: loading both arrays in their entirety for checking is overkill
         return _start_from_ts_td(
@@ -363,7 +365,6 @@ def _stack_dataset_vars(ds: xr.Dataset, *dvars: str, dim: str, axis: Literal[0, 
 
 
 def _euler_to_quat(seq: str, angles, *, degrees: bool = False, canonical: bool = False, scalar_first: bool = False):
-    from scipy.spatial.transform import Rotation
 
     return Rotation.from_euler(seq, angles, degrees=degrees).as_quat(canonical=canonical, scalar_first=scalar_first)
 

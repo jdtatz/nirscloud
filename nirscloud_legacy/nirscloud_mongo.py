@@ -453,6 +453,7 @@ def query_meta_typed(
     query=None,
     find_kwargs=None,
     meta_type: type[MongoMetaBase] = Meta,
+    *,
     add_default_query: bool = True,
 ):
     if not query:

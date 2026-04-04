@@ -3,7 +3,7 @@ requires = ["setuptools>=64", "setuptools_scm[toml]>=7.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "nirscloud_julia"
+name = "nirscloud_legacy"
 authors = [{name = "Julia Tatz", email = "julia.tatz@childrens.harvard.edu"}]
 requires-python = ">=3.13"
 dynamic = ["version"]
@@ -29,7 +29,7 @@ profile = "black"
 python_version = "3.9"
 
 [tool.setuptools_scm]
-write_to = "nirscloud_julia/_version.py"
+write_to = "nirscloud_legacy/_version.py"
 
 [tool.pdm.dev-dependencies]
 dev = [

@@ -1,4 +1,3 @@
-"""Julia's nirscloud utils"""
 from .nirscloud_data import (
     add_meta_coords,
     dcs_ds_from_table,
@@ -21,11 +20,6 @@ from .nirscloud_hdfs import (
     HDFS_PM_N_PREFIXES,
     HDFS_PM_PREFIXES,
     PATIENT_MONITOR_COMPONENT_MAPPING,
-    async_read_table_from_meta,
-    create_async_webhdfs_client,
-    create_webhdfs_client,
-    nirscloud_webhdfs_auth,
-    read_table_from_meta,
 )
 from .nirscloud_mongo import (
     META_COLLECTION_KEY,
@@ -56,20 +50,4 @@ from .nirscloud_mongo import (
     query_vent_n_meta,
     query_vent_waves_meta,
 )
-from .nirscloud_redcap import RedcapEntryMeta, create_redcap_cls_module
 from .nirscloud_redundancies import try_read_nirs_ds_from_meta
-from .nirscloud_simple import (
-    read_alarms_ds_from_meta,
-    read_dcs_ds_from_meta,
-    read_fastrak_ds_from_meta,
-    read_finapres_ds_from_meta,
-    read_nirs_ds_from_meta,
-    read_nk_waves_ds_from_meta,
-    read_patient_monitor_das_from_meta,
-    read_settings_ds_from_meta,
-    read_table_from_meta,
-    read_vent_numerics_ds_from_meta,
-    read_vent_table_from_meta,
-    read_vent_waves_ds_from_meta,
-)
-from .webhdfs import HDFSRemoteException, WebHDFS, async_walk, sync_walk

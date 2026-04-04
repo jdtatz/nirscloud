@@ -8,14 +8,7 @@ import pyarrow.dataset as pds
 import xarray as xr
 from fsspec import AbstractFileSystem
 
-from .nirscloud_data import (
-    add_meta_coords,
-    dcs_ds_from_table,
-    fastrak_raw_stacked_ds_from_table,
-    fastrak_stacked_ds_from_table,
-    nirs_ds_from_table,
-)
-from .nirscloud_hdfs import (
+from .constants import (
     HDFS_PREFIX_AGG,
     HDFS_PREFIX_DEDUP,
     HDFS_PREFIX_KAFKA_TOPICS,
@@ -24,8 +17,15 @@ from .nirscloud_hdfs import (
     KAFKA_TOPICS_FT_CM,
     KAFKA_TOPICS_N,
 )
-from .nirscloud_mongo import DCSMeta, FastrakMeta, Meta, NIRSMeta
-from .nirscloud_raw import read_dcsraw, read_nirsraw
+from .data import (
+    add_meta_coords,
+    dcs_ds_from_table,
+    fastrak_raw_stacked_ds_from_table,
+    fastrak_stacked_ds_from_table,
+    nirs_ds_from_table,
+)
+from .mongo import DCSMeta, FastrakMeta, Meta, NIRSMeta
+from .raw import read_dcsraw, read_nirsraw
 
 ## After NE136 on 2024-03-27 '/nirscloud/dedup/metaox_nirs_rs/_study_id=CCHU/_group_id=_/_subject_id=NE136/_the_date=2024-03-27/_meta_id=xNR9hfs21EKC2dk782WfTA'
 missing_start_date = datetime.datetime(2024, 3, 27, 11, 16, tzinfo=datetime.UTC)

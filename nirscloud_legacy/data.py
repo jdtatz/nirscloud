@@ -10,7 +10,7 @@ import pyarrow as pa
 import xarray as xr
 from scipy.spatial.transform import Rotation
 
-from .nirscloud_mongo import (
+from .mongo import (
     DCSMeta,
     FastrakMeta,
     FinapresMeta,

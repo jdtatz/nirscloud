@@ -44,12 +44,6 @@ def _try_to_meta_id(v: Any) -> Optional[MetaID]:
     return None if v == "" else MetaID.from_stripped_base64(v)
 
 
-def _projection_index(v: dict, projection_key: str):
-    for k in projection_key.split("."):
-        v = v[k]
-    return v
-
-
 _T = TypeVar("_T")
 
 
@@ -414,17 +408,6 @@ class RedcapDefnMeta(MongoMetaBase, database_name="cchu_redcap2_metadata"):
         "text_validation_type_or_show_slider_number", _empty_none
     )
 
-
-create_mongo_client = partial(
-    pymongo.MongoClient,
-    host="mongos.mongo.svc.cluster.local",
-    port=27017,
-    ssl=True,
-    authSource="$external",
-    authMechanism="MONGODB-X509",
-    tlsCertificateKeyFile="/etc/mongo/jhub-keypem.pem",
-    tlsCAFile="/etc/mongo/root-ca.pem",
-)
 
 META_DATABASE_KEY: str = "meta"
 META_COLLECTION_KEY: str = "meta3"

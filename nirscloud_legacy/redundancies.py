@@ -7,6 +7,7 @@ import pyarrow as pa
 import pyarrow.dataset as pds
 import xarray as xr
 from fsspec import AbstractFileSystem
+from metaox_parser import read_dcsraw, read_nirsraw
 
 from .constants import (
     HDFS_PREFIX_AGG,
@@ -25,7 +26,6 @@ from .data import (
     nirs_ds_from_table,
 )
 from .mongo import DCSMeta, FastrakMeta, Meta, NIRSMeta
-from .raw import read_dcsraw, read_nirsraw
 
 ## After NE136 on 2024-03-27 '/nirscloud/dedup/metaox_nirs_rs/_study_id=CCHU/_group_id=_/_subject_id=NE136/_the_date=2024-03-27/_meta_id=xNR9hfs21EKC2dk782WfTA'
 missing_start_date = datetime.datetime(2024, 3, 27, 11, 16, tzinfo=datetime.UTC)

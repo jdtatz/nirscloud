@@ -1,13 +1,12 @@
 import warnings
 from collections.abc import Sequence
 from functools import partial
-from pathlib import PosixPath
 from typing import Literal, Optional
 
 import numpy as np
-import pandas as pd
 import pyarrow as pa
 import xarray as xr
+from metaox_parser import fix_flipped_banks
 from scipy.spatial.transform import Rotation
 
 from .mongo import (
@@ -18,39 +17,6 @@ from .mongo import (
     NIRSMeta,
     PatientMonitorMeta,
 )
-
-
-@warnings.deprecated("Use `nirscloud_raw.read_nirsraw` instead")
-def read_nirsraw(nirsraw_path: PosixPath, nirsraw_rhos: tuple, nirsraw_wavelengths: tuple):
-    if nirsraw_path.parts[:2] == ("/", "smb"):
-        nirsraw_path = PosixPath("/", "home", *nirsraw_path.parts[2:])
-    with nirsraw_path.open() as f:
-        nirsraw = np.genfromtxt(f, delimiter="\t")
-    ndet = len(nirsraw_rhos)
-    nwave = len(nirsraw_wavelengths)
-    _idx, raw_data, aux, dark, _empty = np.split(
-        nirsraw, np.add.accumulate([1] + [nwave * 3 * ndet] + [ndet] * 2), axis=1
-    )
-    assert np.allclose(np.diff(_idx[:, 0]), 1) and _idx[0, 0] == 0
-    assert _empty.size == 0
-    stacked_idx = pd.MultiIndex.from_product(
-        (nirsraw_rhos, nirsraw_wavelengths, ("ac", "dc", "phase")), names=["rho", "wavelength", "variable"]
-    )
-    stacked_data = xr.DataArray(
-        raw_data,
-        dims=("time", "stacked_rho_wavelength_variable"),
-        coords={
-            "stacked_rho_wavelength_variable": stacked_idx,
-        },
-    )
-    return (
-        stacked_data.to_unstacked_dataset("stacked_rho_wavelength_variable", 2)
-        .unstack("stacked_rho_wavelength_variable")
-        .assign(
-            aux=(("time", "rho"), aux),
-            dark=(("time", "rho"), dark),
-        )
-    )
 
 
 def _to_datetime_scalar(v, unit="D"):
@@ -312,16 +278,7 @@ def dcs_ds_from_table(table: pa.Table, *, flipped_banks: Optional[bool] = None):
     )
     if start is not None:
         ds.attrs["dcs_start_time"] = start
-    if flipped_banks is not None:
-        if flipped_banks:
-            assert ds.sizes["channel"] == 8
-            ds = ds.roll({"channel": 4})
-        ## NOTE: the channel coordinate is only added if it's known if the banks were flipped or not
-        # ds = ds.assign_coords(channel=(["channel"], np.arange(1, 1 + ds.sizes["channel"])))
-        ds = ds.assign_coords(
-            xr.Coordinates.from_xindex(xr.indexes.PandasIndex(pd.RangeIndex(1, 1 + ds.sizes["channel"]), "channel"))
-        )
-    return ds
+    return fix_flipped_banks(ds, flipped_banks=flipped_banks)
 
 
 def fastrak_raw_stacked_ds_from_table(table: pa.Table, *, prefer_timedelta: bool = False):

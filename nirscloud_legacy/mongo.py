@@ -44,6 +44,10 @@ def _try_to_meta_id(v: Any) -> Optional[MetaID]:
     return None if v == "" else MetaID.from_stripped_base64(v)
 
 
+def _try_to_posix_path(v: Any) -> Optional[PurePosixPath]:
+    return None if v == "/non-exists" else PurePosixPath(v)
+
+
 _T = TypeVar("_T")
 
 
@@ -219,7 +223,7 @@ class _MetaOxBaseMeta(Meta, database_name="meta"):
     dcs_start: Optional[np.datetime64] = query_field("dcsStartNanoTS", _to_datetime64_ns, default=None)
     dcs_end: Optional[np.datetime64] = query_field("dcsEndNanoTS", _to_datetime64_ns, default=None)
     nirsraw_filepath: Optional[PurePosixPath] = query_field("nirsraw_filename", PurePosixPath, default=None)
-    dcsraw_filepath: Optional[PurePosixPath] = query_field("dcsraw_filename", PurePosixPath, default=None)
+    dcsraw_filepath: Optional[PurePosixPath] = query_field("dcsraw_filename", _try_to_posix_path, default=None)
 
 
 class NIRSMeta(

@@ -73,8 +73,8 @@ def add_meta_coords(ds: xr.Dataset, meta: Meta, *, metaox_to_rel_time: bool = Tr
                     warnings.warn(f"meta.nirs_end {meta.nirs_end} is earlier than the last data timestamp {end}")
             dt_dur = np.round((end - start) / np.timedelta64(1, "s")).astype("timedelta64[s]")
             coords.update(
-                nirs_start_time=start,
-                nirs_end_time=end,
+                start=start,
+                end=end,
                 duration=meta.duration if meta.duration is not None else dt_dur,
             )
             if metaox_to_rel_time:
@@ -83,17 +83,17 @@ def add_meta_coords(ds: xr.Dataset, meta: Meta, *, metaox_to_rel_time: bool = Tr
             if meta.duration is not None:
                 coords["duration"] = meta.duration
             if meta.nirs_start is not None:
-                coords["nirs_start_time"] = meta.nirs_start
+                coords["start"] = meta.nirs_start
             if meta.nirs_end is not None:
-                coords["nirs_end_time"] = meta.nirs_end
+                coords["end"] = meta.nirs_end
 
-            if "nirs_start_time" in ds.attrs:
-                start = ds.attrs["nirs_start_time"]
+            if "start" in ds.attrs:
+                start = ds.attrs["start"]
                 if meta.nirs_start is not None and meta.nirs_start > start:
                     warnings.warn(f"meta.nirs_start {meta.nirs_start} is later than the first data timestamp {start}")
-                    coords["nirs_start_time"] = start
+                    coords["start"] = start
                 elif meta.nirs_start is None:
-                    coords["nirs_start_time"] = start
+                    coords["start"] = start
 
         coords["rho"] = "detector", np.array(meta.nirs_distances), {"units": "cm"}
         if meta.nirs_hz is not None:
@@ -118,8 +118,8 @@ def add_meta_coords(ds: xr.Dataset, meta: Meta, *, metaox_to_rel_time: bool = Tr
                     warnings.warn(f"meta.dcs_end {meta.dcs_end} is earlier than the last data timestamp {end}")
             dt_dur = np.round((end - start) / np.timedelta64(1, "s")).astype("timedelta64[s]")
             coords.update(
-                dcs_start_time=start,
-                dcs_end_time=end,
+                start=start,
+                end=end,
                 duration=meta.duration if meta.duration is not None else dt_dur,
             )
             if metaox_to_rel_time:
@@ -128,17 +128,17 @@ def add_meta_coords(ds: xr.Dataset, meta: Meta, *, metaox_to_rel_time: bool = Tr
             if meta.duration is not None:
                 coords["duration"] = meta.duration
             if meta.dcs_start is not None:
-                coords["dcs_start_time"] = meta.dcs_start
+                coords["start"] = meta.dcs_start
             if meta.dcs_end is not None:
-                coords["dcs_end_time"] = meta.dcs_end
+                coords["end"] = meta.dcs_end
 
-            if "dcs_start_time" in ds.attrs:
-                start = ds.attrs["dcs_start_time"]
+            if "start" in ds.attrs:
+                start = ds.attrs["start"]
                 if meta.dcs_start is not None and meta.dcs_start > start:
                     warnings.warn(f"meta.dcs_start {meta.dcs_start} is later than the first data timestamp {start}")
-                    coords["dcs_start_time"] = start
+                    coords["start"] = start
                 elif meta.dcs_start is None:
-                    coords["dcs_start_time"] = start
+                    coords["start"] = start
 
         coords["rho"] = "channel", np.array(meta.dcs_distances), {"units": "cm"}
         if meta.dcs_hz is not None:
@@ -254,7 +254,7 @@ def nirs_ds_from_table(table: pa.Table):
         .sortby("time")
     )
     if start is not None:
-        ds.attrs["nirs_start_time"] = start
+        ds.attrs["start"] = start
     return ds
 
 
@@ -277,7 +277,7 @@ def dcs_ds_from_table(table: pa.Table, *, flipped_banks: Optional[bool] = None):
         .sortby("time")
     )
     if start is not None:
-        ds.attrs["dcs_start_time"] = start
+        ds.attrs["start"] = start
     return fix_flipped_banks(ds, flipped_banks=flipped_banks)
 
 
@@ -295,7 +295,7 @@ def fastrak_raw_stacked_ds_from_table(table: pa.Table, *, prefer_timedelta: bool
         },
     )
     if start is not None:
-        ds.attrs["fastrak_start_time"] = start
+        ds.attrs["start"] = start
     return ds
 
 
@@ -370,7 +370,7 @@ def fastrak_stacked_ds_from_table(table: pa.Table, *, prefer_timedelta: bool = F
         },
     )
     if start is not None:
-        ds.attrs["fastrak_start_time"] = start
+        ds.attrs["start"] = start
     return ds
 
 

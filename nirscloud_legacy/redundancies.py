@@ -133,12 +133,12 @@ def read_dcs_ds_from_meta_raw(meta: DCSMeta, smb_path: Path):
 def try_read_nirs_ds_from_meta_inner(fs: AbstractFileSystem, meta: NIRSMeta, smb_path: Path):
     table, missing = try_read_pq_table_from_meta(fs, meta, KAFKA_TOPICS_N)
     if not missing:
-        raw_ds = nirs_ds_from_table(table, nirs_det_dim="detector")
+        raw_ds = nirs_ds_from_table(table)
         ## Need to dedup here, since it may be read from `/kafka/topics/metaox_nirs_rs` which has duplicates still
         return raw_ds.drop_duplicates("time"), False, False
     elif table:
         raw_ds = (
-            xr.concat([nirs_ds_from_table(t, nirs_det_dim="detector") for t in table], "time", join="outer")
+            xr.concat([nirs_ds_from_table(t) for t in table], "time", join="outer")
             .sortby("time")
             .drop_duplicates("time")
         )
@@ -185,7 +185,7 @@ def try_read_nirs_ds_from_meta(fs: AbstractFileSystem, meta: NIRSMeta, smb_path:
         warnings.warn(f"{meta.meta!r}: missing data")
     if from_nirsraw:
         warnings.warn(f"{meta.meta!r}: using truncated .nirsraw data in place of missing data")
-    return add_meta_coords(ds, meta, nirs_det_dim="detector", metaox_to_rel_time=False)
+    return add_meta_coords(ds, meta, metaox_to_rel_time=False)
 
 
 def try_read_dcs_ds_from_meta_inner(fs: AbstractFileSystem, meta: DCSMeta, smb_path: Path):

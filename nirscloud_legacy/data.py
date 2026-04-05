@@ -38,7 +38,7 @@ def _maybe_rsplit_once(s: str, sep: Optional[str]):
     )
 
 
-def add_meta_coords(ds: xr.Dataset, meta: Meta, *, nirs_det_dim: str = "rho", metaox_to_rel_time: bool = True):
+def add_meta_coords(ds: xr.Dataset, meta: Meta, *, metaox_to_rel_time: bool = True):
     loc, trial = _maybe_rsplit_once(meta.measurement, "_")
     trial = None if trial is None else int(trial)
     session = int(meta.session.removeprefix("S")) if meta.session else None
@@ -95,13 +95,13 @@ def add_meta_coords(ds: xr.Dataset, meta: Meta, *, nirs_det_dim: str = "rho", me
                 elif meta.nirs_start is None:
                     coords["nirs_start_time"] = start
 
-        coords["rho"] = nirs_det_dim, np.array(meta.nirs_distances), {"units": "cm"}
+        coords["rho"] = "detector", np.array(meta.nirs_distances), {"units": "cm"}
         if meta.nirs_hz is not None:
             coords["frequency"] = (), np.array(meta.nirs_hz), {"units": "Hz"}
         if meta.nirs_wavelengths is not None:
             coords["wavelength"] = "wavelength", np.array(meta.nirs_wavelengths), {"units": "nm"}
         if meta.gains is not None:
-            coords["gain"] = nirs_det_dim, np.array(meta.gains)
+            coords["gain"] = "detector", np.array(meta.gains)
         ds["phase"].attrs["units"] = "radian" if meta.is_radian else "deg"
     elif isinstance(meta, DCSMeta):
         if "time" in ds.coords and np.issubdtype(ds.coords["time"].dtype, np.datetime64):
@@ -237,16 +237,16 @@ def _offset_time_from_table(table: pa.Table, *, prefer_rela: bool = True):
         )
 
 
-def nirs_ds_from_table(table: pa.Table, *, nirs_det_dim: str = "rho"):
+def nirs_ds_from_table(table: pa.Table):
     time, start = _offset_time_from_table(table)
     ds = (
         xr.Dataset(
             data_vars={
-                "ac": (("time", "wavelength", nirs_det_dim), _from_chunked_array(table["ac"])),
-                "phase": (("time", "wavelength", nirs_det_dim), _from_chunked_array(table["phase"])),
-                "dc": (("time", "wavelength", nirs_det_dim), _from_chunked_array(table["dc"])),
-                "dark": (("time", nirs_det_dim), _from_chunked_array(table["dark"])),
-                "aux": (("time", nirs_det_dim), _from_chunked_array(table["aux"])),
+                "ac": (("time", "wavelength", "detector"), _from_chunked_array(table["ac"])),
+                "phase": (("time", "wavelength", "detector"), _from_chunked_array(table["phase"])),
+                "dc": (("time", "wavelength", "detector"), _from_chunked_array(table["dc"])),
+                "dark": (("time", "detector"), _from_chunked_array(table["dark"])),
+                "aux": (("time", "detector"), _from_chunked_array(table["aux"])),
             },
             coords={"time": ("time", time)},
         )

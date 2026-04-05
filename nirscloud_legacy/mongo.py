@@ -3,7 +3,7 @@ import datetime
 import uuid
 import warnings
 from collections.abc import Callable
-from dataclasses import MISSING, dataclass, field, fields
+from dataclasses import MISSING, asdict, dataclass, field, fields
 from functools import partial
 from pathlib import PurePath, PurePosixPath, PureWindowsPath
 from typing import Any, ClassVar, Literal, Optional, TypeVar, dataclass_transform
@@ -200,15 +200,7 @@ class FastrakMeta(
     n_fastrak_max_part: Optional[int] = query_field("n_fastrak_max_part", int, default=None)
 
 
-class MetaOxMeta(
-    Meta,
-    database_name="meta",
-    default_query={
-        "hdfs_path.val": {"$exists": True},
-        "n_nirs.val": {"$exists": True},
-        "isValid.val": {"$ne": False},
-    },
-):
+class _MetaOxBaseMeta(Meta, database_name="meta"):
     is_valid: bool = query_field("isValid", bool, default=True)
     nirs_distances: tuple[Real, ...] = query_field("nirsDistances", tuple)
     nirs_wavelengths: Optional[tuple[Real, ...]] = query_field("nirsWavelengths", tuple, default=None)
@@ -231,7 +223,7 @@ class MetaOxMeta(
 
 
 class NIRSMeta(
-    MetaOxMeta,
+    _MetaOxBaseMeta,
     database_name="meta",
     default_query={
         "hdfs_path.val": {"$exists": True},
@@ -247,7 +239,7 @@ class NIRSMeta(
 
 
 class DCSMeta(
-    MetaOxMeta,
+    _MetaOxBaseMeta,
     database_name="meta",
     default_query={
         "hdfs_path.val": {"$exists": True},
@@ -260,6 +252,28 @@ class DCSMeta(
     n_nirs: Optional[int] = query_field("n_nirs", int, default=None)
     n_dcs_dedup: Optional[int] = query_field("n_dcs_dedup", int, default=None)
     n_nirs_dedup: Optional[int] = query_field("n_nirs_dedup", int, default=None)
+
+
+class MetaOxMeta(
+    _MetaOxBaseMeta,
+    database_name="meta",
+    default_query={
+        "hdfs_path.val": {"$exists": True},
+        "n_nirs.val": {"$exists": True},
+        "n_dcs.val": {"$exists": True},
+        "isValid.val": {"$ne": False},
+    },
+):
+    n_nirs: int = query_field("n_nirs", int)
+    n_dcs: int = query_field("n_dcs", int)
+    n_nirs_dedup: Optional[int] = query_field("n_nirs_dedup", int, default=None)
+    n_dcs_dedup: Optional[int] = query_field("n_dcs_dedup", int, default=None)
+
+    def as_nirs_meta(self) -> NIRSMeta:
+        return NIRSMeta(**asdict(self))
+
+    def as_dcs_meta(self) -> DCSMeta:
+        return DCSMeta(**asdict(self))
 
 
 class FinapresMeta(

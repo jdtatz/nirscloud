@@ -473,6 +473,7 @@ def query_meta_typed(
 query_fastrak_meta = partial(query_meta_typed, meta_type=FastrakMeta)
 query_nirs_meta = partial(query_meta_typed, meta_type=NIRSMeta)
 query_dcs_meta = partial(query_meta_typed, meta_type=DCSMeta)
+query_metaox_meta = partial(query_meta_typed, meta_type=MetaOxMeta)
 query_finapres_meta = partial(query_meta_typed, meta_type=FinapresMeta)
 query_patient_monitor_meta = partial(query_meta_typed, meta_type=PatientMonitorMeta)
 query_vent_meta = partial(query_meta_typed, meta_type=VentMeta)

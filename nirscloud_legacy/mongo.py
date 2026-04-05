@@ -187,8 +187,7 @@ class FastrakMeta(
     default_query={
         "the_type.val": "fastrak",
         "hdfs_path.val": {"$exists": True},
-        ## TODO: should be just `n_fastrak.val`, but can't break compat
-        "n_fastrak_dedup.val": {"$exists": True},
+        "n_fastrak.val": {"$exists": True},
     },
     kafka_topics=["fastrak_cm_s", "fastrak2_s"],
 ):
@@ -206,7 +205,7 @@ class MetaOxMeta(
     database_name="meta",
     default_query={
         "hdfs_path.val": {"$exists": True},
-        "n_nirs_dedup.val": {"$exists": True},
+        "n_nirs.val": {"$exists": True},
         "isValid.val": {"$ne": False},
     },
 ):
@@ -236,8 +235,7 @@ class NIRSMeta(
     database_name="meta",
     default_query={
         "hdfs_path.val": {"$exists": True},
-        ## TODO: should be just `n_nirs.val`, but can't break compat
-        "n_nirs_dedup.val": {"$exists": True},
+        "n_nirs.val": {"$exists": True},
         "isValid.val": {"$ne": False},
     },
     kafka_topics=["metaox_nirs_rs", "metaox_nirs_s"],
@@ -253,8 +251,7 @@ class DCSMeta(
     database_name="meta",
     default_query={
         "hdfs_path.val": {"$exists": True},
-        ## TODO: should be just `n_dcs.val`, but can't break compat
-        "n_dcs_dedup.val": {"$exists": True},
+        "n_dcs.val": {"$exists": True},
         "isValid.val": {"$ne": False},
     },
     kafka_topics=["metaox_dcs_s"],
@@ -268,7 +265,7 @@ class DCSMeta(
 class FinapresMeta(
     Meta,
     database_name="meta",
-    default_query={"n_waveform_dedup.val": {"$exists": True}},
+    default_query={"n_waveform.val": {"$exists": True}},
     kafka_topics=["finapres_waveform_su", "finapres_waveform2_s", "finapres_waveform_s"],
 ):
     # device_id
@@ -278,7 +275,7 @@ class FinapresMeta(
 class PatientMonitorMeta(
     Meta,
     database_name="meta",
-    default_query={"n_waves_dedup.val": {"$exists": True}, "n_numerics_dedup.val": {"$exists": True}},
+    default_query={"n_waves.val": {"$exists": True}, "n_numerics.val": {"$exists": True}},
 ):
     pass
 
@@ -286,7 +283,7 @@ class PatientMonitorMeta(
 class PatientMonitorWavesMeta(
     Meta,
     database_name="meta",
-    default_query={"n_waves_dedup.val": {"$exists": True}},
+    default_query={"n_waves.val": {"$exists": True}},
     kafka_topics=["ixtrend_waves5_s", "ixtrend_waves4_s", "ixtrend_waves3_s", "ixtrend_waves2_s", "ixtrend_waves"],
 ):
     pass
@@ -295,7 +292,7 @@ class PatientMonitorWavesMeta(
 class PatientMonitorNumericsMeta(
     Meta,
     database_name="meta",
-    default_query={"n_numerics_dedup.val": {"$exists": True}},
+    default_query={"n_numerics.val": {"$exists": True}},
     kafka_topics=["ixtrend_numerics2_s", "ixtrend_numerics_s", "ixtrend_numerics"],
 ):
     pass

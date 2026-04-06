@@ -59,11 +59,11 @@ def convert_nirs_meta(meta: NIRSMeta | MetaOxMeta) -> Metadata:
         attrs["start"] = meta.nirs_start
     if meta.nirs_end is not None:
         attrs["end"] = meta.nirs_end
+    if meta.nirs_hz is not None:
+        attrs["nirs_hz"] = meta.nirs_hz
 
     coords = {}
     coords["rho"] = "detector", np.array(meta.nirs_distances), {"units": "cm"}
-    if meta.nirs_hz is not None:
-        coords["frequency"] = (), np.array(meta.nirs_hz), {"units": "Hz"}
     if meta.nirs_wavelengths is not None:
         coords["wavelength"] = "wavelength", np.array(meta.nirs_wavelengths), {"units": "nm"}
     if meta.gains is not None:
@@ -84,11 +84,11 @@ def convert_dcs_meta(meta: DCSMeta | MetaOxMeta) -> Metadata:
         attrs["start"] = meta.dcs_start
     if meta.dcs_end is not None:
         attrs["end"] = meta.dcs_end
+    if meta.dcs_hz is not None:
+        attrs["dcs_hz"] = meta.dcs_hz
 
     coords = {}
     coords["rho"] = "channel", np.array(meta.dcs_distances), {"units": "cm"}
-    if meta.dcs_hz is not None:
-        coords["frequency"] = (), np.array(meta.dcs_hz), {"units": "Hz"}
     if meta.dcs_wavelength is not None:
         coords["wavelength"] = (), np.array(meta.dcs_wavelength), {"units": "nm"}
     coords = xr.Coordinates(coords)

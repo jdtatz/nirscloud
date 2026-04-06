@@ -274,10 +274,10 @@ class MetaOxMeta(
     n_dcs_dedup: Optional[int] = query_field("n_dcs_dedup", int, default=None)
 
     def as_nirs_meta(self) -> NIRSMeta:
-        return NIRSMeta(**asdict(self))
+        return NIRSMeta(**{k: v for k, v in asdict(self).items() if k != "_extra"})
 
     def as_dcs_meta(self) -> DCSMeta:
-        return DCSMeta(**asdict(self))
+        return DCSMeta(**{k: v for k, v in asdict(self).items() if k != "_extra"})
 
 
 class FinapresMeta(

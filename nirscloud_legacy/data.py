@@ -237,8 +237,8 @@ def _offset_time_from_table(table: pa.Table, *, prefer_rela: bool = True):
         )
 
 
-def nirs_ds_from_table(table: pa.Table):
-    time, start = _offset_time_from_table(table)
+def nirs_ds_from_table(table: pa.Table, *, prefer_timedelta: bool = False):
+    time, start = _offset_time_from_table(table, prefer_rela=prefer_timedelta)
     ds = (
         xr.Dataset(
             data_vars={
@@ -258,10 +258,10 @@ def nirs_ds_from_table(table: pa.Table):
     return ds
 
 
-def dcs_ds_from_table(table: pa.Table, *, flipped_banks: Optional[bool] = None):
+def dcs_ds_from_table(table: pa.Table, *, flipped_banks: Optional[bool] = None, prefer_timedelta: bool = False):
     tau = _from_chunked_array(table["t"])
     # assert np.unique(tau, axis=0).shape[0] == 1
-    time, start = _offset_time_from_table(table)
+    time, start = _offset_time_from_table(table, prefer_rela=prefer_timedelta)
     ds = (
         xr.Dataset(
             data_vars={

@@ -130,18 +130,21 @@ def read_dcs_ds_from_meta_raw(meta: DCSMeta, smb_path: Path):
     return raw_ds
 
 
-def try_read_nirs_ds_from_meta_inner(fs: AbstractFileSystem, meta: NIRSMeta, smb_path: Path):
+def try_read_nirs_ds_from_meta_inner(
+    fs: AbstractFileSystem,
+    meta: NIRSMeta,
+    smb_path: Path,
+    *,
+    prefer_timedelta: bool = False,
+):
+    from_table = partial(nirs_ds_from_table, prefer_timedelta=prefer_timedelta)
     table, missing = try_read_pq_table_from_meta(fs, meta, KAFKA_TOPICS_N)
     if not missing:
-        raw_ds = nirs_ds_from_table(table)
+        raw_ds = from_table(table)
         ## Need to dedup here, since it may be read from `/kafka/topics/metaox_nirs_rs` which has duplicates still
         return raw_ds.drop_duplicates("time"), False, False
     elif table:
-        raw_ds = (
-            xr.concat([nirs_ds_from_table(t) for t in table], "time", join="outer")
-            .sortby("time")
-            .drop_duplicates("time")
-        )
+        raw_ds = xr.concat([from_table(t) for t in table], "time", join="outer").sortby("time").drop_duplicates("time")
         raw_n_time = raw_ds.sizes["time"]
         if raw_n_time >= meta.n_nirs:
             if raw_n_time > meta.n_nirs:
@@ -158,6 +161,11 @@ def try_read_nirs_ds_from_meta_inner(fs: AbstractFileSystem, meta: NIRSMeta, smb
         warnings.warn(f'{meta.meta!r}: nirsraw_filepath {meta.nirsraw_filepath} doesn\'t start with "/smb"')
         return raw_ds, True, False
     nirsraw_ds = read_nirs_ds_from_meta_raw(meta, smb_path)
+    if not prefer_timedelta:
+        if raw_ds and "start" in raw_ds.attrs:
+            nirsraw_ds["time"] = raw_ds.attrs["start"] + nirsraw_ds["time"]
+        elif meta.nirs_start is not None:
+            nirsraw_ds["time"] = meta.nirs_start + nirsraw_ds["time"]
     if raw_ds is None:
         return nirsraw_ds, False, True
     ## NOTE: drop duplicates before sorting to keep the better numerical values
@@ -165,7 +173,13 @@ def try_read_nirs_ds_from_meta_inner(fs: AbstractFileSystem, meta: NIRSMeta, smb
     return ds, False, True
 
 
-def try_read_nirs_ds_from_meta(fs: AbstractFileSystem, meta: NIRSMeta, smb_path: Path):
+def try_read_nirs_ds_from_meta(
+    fs: AbstractFileSystem,
+    meta: NIRSMeta,
+    smb_path: Path,
+    *,
+    prefer_timedelta: bool = False,
+):
     """Read NIRS data from the cluster using the redudant non-deduplicated data and falling back to
     the `.nirsraw` backup on the fileshare to account for partial data after the
     cluster data loss incident on March 27th 2024
@@ -179,8 +193,10 @@ def try_read_nirs_ds_from_meta(fs: AbstractFileSystem, meta: NIRSMeta, smb_path:
     smb_path
         The nirsraw filepath in meta always starts with '/smb/', replace it with `smb_path` pointing towards
         the mounted location of the fileshare. On our jupyterhub that is '/home'
+    prefer_timedelta
+        prefer the `time` coordinate as a timedelta64 instead of datetime64
     """
-    ds, missing, from_nirsraw = try_read_nirs_ds_from_meta_inner(fs, meta, smb_path)
+    ds, missing, from_nirsraw = try_read_nirs_ds_from_meta_inner(fs, meta, smb_path, prefer_timedelta=prefer_timedelta)
     if missing:
         warnings.warn(f"{meta.meta!r}: missing data")
     if from_nirsraw:
@@ -188,18 +204,21 @@ def try_read_nirs_ds_from_meta(fs: AbstractFileSystem, meta: NIRSMeta, smb_path:
     return add_meta_coords(ds, meta, metaox_to_rel_time=False)
 
 
-def try_read_dcs_ds_from_meta_inner(fs: AbstractFileSystem, meta: DCSMeta, smb_path: Path):
+def try_read_dcs_ds_from_meta_inner(
+    fs: AbstractFileSystem,
+    meta: DCSMeta,
+    smb_path: Path,
+    *,
+    prefer_timedelta: bool = False,
+):
+    from_table = partial(dcs_ds_from_table, flipped_banks=meta.flipped_banks, prefer_timedelta=prefer_timedelta)
     table, missing = try_read_pq_table_from_meta(fs, meta, KAFKA_TOPICS_D)
     if not missing:
-        raw_ds = dcs_ds_from_table(table, flipped_banks=meta.flipped_banks)
+        raw_ds = from_table(table)
         ## Need to dedup here, since it may be read from `/kafka/topics/metaox_dcs_s` which has duplicates still
         return raw_ds.drop_duplicates("time"), False, False
     elif table:
-        raw_ds = (
-            xr.concat([dcs_ds_from_table(t, flipped_banks=meta.flipped_banks) for t in table], "time", join="outer")
-            .sortby("time")
-            .drop_duplicates("time")
-        )
+        raw_ds = xr.concat([from_table(t) for t in table], "time", join="outer").sortby("time").drop_duplicates("time")
         raw_n_time = raw_ds.sizes["time"]
         if raw_n_time >= meta.n_dcs:
             if raw_n_time > meta.n_dcs:
@@ -216,6 +235,11 @@ def try_read_dcs_ds_from_meta_inner(fs: AbstractFileSystem, meta: DCSMeta, smb_p
         warnings.warn(f'{meta.meta!r}: dcsraw_filepath {meta.dcsraw_filepath} doesn\'t start with "/smb"')
         return raw_ds, True, False
     dcsraw_ds = read_dcs_ds_from_meta_raw(meta, smb_path)
+    if not prefer_timedelta:
+        if raw_ds and "start" in raw_ds.attrs:
+            dcsraw_ds["time"] = raw_ds.attrs["start"] + dcsraw_ds["time"]
+        elif meta.dcs_start is not None:
+            dcsraw_ds["time"] = meta.dcs_start + dcsraw_ds["time"]
     if raw_ds is None:
         return dcsraw_ds, False, True
     ## NOTE: drop duplicates before sorting to keep the better numerical values
@@ -223,7 +247,7 @@ def try_read_dcs_ds_from_meta_inner(fs: AbstractFileSystem, meta: DCSMeta, smb_p
     return ds, False, True
 
 
-def try_read_dcs_ds_from_meta(fs: AbstractFileSystem, meta: DCSMeta, smb_path: Path):
+def try_read_dcs_ds_from_meta(fs: AbstractFileSystem, meta: DCSMeta, smb_path: Path, *, prefer_timedelta: bool = False):
     """Read DCS data from the cluster using the redudant non-deduplicated data and falling back to
     the `.dcsraw` backup on the fileshare to account for partial data after the
     cluster data loss incident on March 27th 2024
@@ -237,8 +261,10 @@ def try_read_dcs_ds_from_meta(fs: AbstractFileSystem, meta: DCSMeta, smb_path: P
     smb_path
         The dcsraw filepath in meta always starts with '/smb/', replace it with `smb_path` pointing towards
         the mounted location of the fileshare. On our jupyterhub that is '/home'
+    prefer_timedelta
+        prefer the `time` coordinate as a timedelta64 instead of datetime64
     """
-    ds, missing, from_dcsraw = try_read_dcs_ds_from_meta_inner(fs, meta, smb_path)
+    ds, missing, from_dcsraw = try_read_dcs_ds_from_meta_inner(fs, meta, smb_path, prefer_timedelta=prefer_timedelta)
     if missing:
         warnings.warn(f"{meta.meta!r}: missing data")
     if from_dcsraw:

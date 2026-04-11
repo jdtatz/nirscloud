@@ -224,6 +224,12 @@ class _MetaOxBaseMeta(Meta, database_name="meta"):
     dcs_end: Optional[np.datetime64] = query_field("dcsEndNanoTS", _to_datetime64_ns, default=None)
     nirsraw_filepath: Optional[PurePosixPath] = query_field("nirsraw_filename", PurePosixPath, default=None)
     dcsraw_filepath: Optional[PurePosixPath] = query_field("dcsraw_filename", _try_to_posix_path, default=None)
+    n_nirs_dedup: Optional[int] = query_field("n_nirs_dedup", int, default=None)
+    n_nirs_max_part: Optional[int] = query_field("n_nirs_max_part", int, default=None)
+    n_nirs_min_part: Optional[int] = query_field("n_nirs_min_part", int, default=None)
+    n_dcs_dedup: Optional[int] = query_field("n_dcs_dedup", int, default=None)
+    n_dcs_max_part: Optional[int] = query_field("n_dcs_max_part", int, default=None)
+    n_dcs_min_part: Optional[int] = query_field("n_dcs_min_part", int, default=None)
 
 
 class NIRSMeta(
@@ -238,8 +244,6 @@ class NIRSMeta(
 ):
     n_nirs: int = query_field("n_nirs", int)
     n_dcs: Optional[int] = query_field("n_dcs", int, default=None)
-    n_nirs_dedup: Optional[int] = query_field("n_nirs_dedup", int, default=None)
-    n_dcs_dedup: Optional[int] = query_field("n_dcs_dedup", int, default=None)
 
 
 class DCSMeta(
@@ -254,8 +258,6 @@ class DCSMeta(
 ):
     n_dcs: int = query_field("n_dcs", int)
     n_nirs: Optional[int] = query_field("n_nirs", int, default=None)
-    n_dcs_dedup: Optional[int] = query_field("n_dcs_dedup", int, default=None)
-    n_nirs_dedup: Optional[int] = query_field("n_nirs_dedup", int, default=None)
 
 
 class MetaOxMeta(
@@ -270,8 +272,6 @@ class MetaOxMeta(
 ):
     n_nirs: int = query_field("n_nirs", int)
     n_dcs: int = query_field("n_dcs", int)
-    n_nirs_dedup: Optional[int] = query_field("n_nirs_dedup", int, default=None)
-    n_dcs_dedup: Optional[int] = query_field("n_dcs_dedup", int, default=None)
 
     def as_nirs_meta(self) -> NIRSMeta:
         return NIRSMeta(**{k: v for k, v in asdict(self).items() if k != "_extra"})

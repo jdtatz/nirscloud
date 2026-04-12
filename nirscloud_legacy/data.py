@@ -91,22 +91,24 @@ def nirs_ds_from_table(
     table: pa.RecordBatch | pa.Table,
     *,
     prefer_timedelta: bool = False,
+    transpose: bool = True,
+    sort: bool = True,
 ):
     time, start = _offset_time_from_table(table, prefer_rela=prefer_timedelta)
-    ds = (
-        xr.Dataset(
-            data_vars={
-                "ac": (("time", "wavelength", "detector"), _from_chunked_array(table["ac"])),
-                "phase": (("time", "wavelength", "detector"), _from_chunked_array(table["phase"])),
-                "dc": (("time", "wavelength", "detector"), _from_chunked_array(table["dc"])),
-                "dark": (("time", "detector"), _from_chunked_array(table["dark"])),
-                "aux": (("time", "detector"), _from_chunked_array(table["aux"])),
-            },
-            coords={"time": ("time", time)},
-        )
-        .transpose()
-        .sortby("time")
+    ds = xr.Dataset(
+        data_vars={
+            "ac": (("time", "wavelength", "detector"), _from_chunked_array(table["ac"])),
+            "phase": (("time", "wavelength", "detector"), _from_chunked_array(table["phase"])),
+            "dc": (("time", "wavelength", "detector"), _from_chunked_array(table["dc"])),
+            "dark": (("time", "detector"), _from_chunked_array(table["dark"])),
+            "aux": (("time", "detector"), _from_chunked_array(table["aux"])),
+        },
+        coords={"time": ("time", time)},
     )
+    if transpose:
+        ds = ds.transpose()
+    if sort:
+        ds = ds.sortby("time")
     if start is not None:
         ds.attrs["start"] = start
     return ds
@@ -117,24 +119,26 @@ def dcs_ds_from_table(
     *,
     flipped_banks: Optional[bool] = None,
     prefer_timedelta: bool = False,
+    transpose: bool = True,
+    sort: bool = True,
 ):
     tau = _from_chunked_array(table["t"])
     # assert np.unique(tau, axis=0).shape[0] == 1
     time, start = _offset_time_from_table(table, prefer_rela=prefer_timedelta)
-    ds = (
-        xr.Dataset(
-            data_vars={
-                "counts": (("time", "channel"), _from_chunked_array(table["CPS"]), {"units": "Hz"}),
-                "value": (("time", "tau", "channel"), _from_chunked_array(table["t_val"])),
-            },
-            coords={
-                "time": ("time", time),
-                "tau": ("tau", tau[0], {"units": "s"}),
-            },
-        )
-        .transpose()
-        .sortby("time")
+    ds = xr.Dataset(
+        data_vars={
+            "counts": (("time", "channel"), _from_chunked_array(table["CPS"]), {"units": "Hz"}),
+            "value": (("time", "tau", "channel"), _from_chunked_array(table["t_val"])),
+        },
+        coords={
+            "time": ("time", time),
+            "tau": ("tau", tau[0], {"units": "s"}),
+        },
     )
+    if transpose:
+        ds = ds.transpose()
+    if sort:
+        ds = ds.sortby("time")
     if start is not None:
         ds.attrs["start"] = start
     return fix_flipped_banks(ds, flipped_banks=flipped_banks)

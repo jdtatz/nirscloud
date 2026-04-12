@@ -26,7 +26,7 @@ from .data import (
     fastrak_stacked_ds_from_table,
     nirs_ds_from_table,
 )
-from .metadata import convert_dcs_meta, convert_nirs_meta, update_metadata
+from .metadata import convert_dcs_meta, convert_nirs_meta, try_pop_extra_attrs, update_metadata
 from .mongo import DCSMeta, FastrakMeta, Meta, NIRSMeta
 
 ## After NE136 on 2024-03-27 '/nirscloud/dedup/metaox_nirs_rs/_study_id=CCHU/_group_id=_/_subject_id=NE136/_the_date=2024-03-27/_meta_id=xNR9hfs21EKC2dk782WfTA'
@@ -378,7 +378,7 @@ def try_read_nirs_ds_from_meta(
     if from_nirsraw:
         warnings.warn(f"{meta.meta!r}: using truncated .nirsraw data in place of missing data")
     metadata = convert_nirs_meta(meta)
-    return update_metadata(ds, metadata)
+    return try_pop_extra_attrs(update_metadata(ds, metadata))
 
 
 def try_read_dcs_ds_from_meta_inner(
@@ -451,7 +451,7 @@ def try_read_dcs_ds_from_meta(fs: AbstractFileSystem, meta: DCSMeta, smb_path: P
     if from_dcsraw:
         warnings.warn(f"{meta.meta!r}: using truncated .dcsraw data in place of missing data")
     metadata = convert_dcs_meta(meta)
-    return update_metadata(ds, metadata)
+    return try_pop_extra_attrs(update_metadata(ds, metadata))
 
 
 def try_read_fastrak_stacked_ds_from_meta(

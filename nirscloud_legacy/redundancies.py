@@ -99,6 +99,8 @@ def try_read_pq_dataset_timestamp_sorted(
     fs: AbstractFileSystem, dir_path: str | PurePosixPath
 ) -> pds.FileSystemDataset | None:
     dir_path = str(dir_path)
+    if not fs.exists(dir_path):
+        return None
     infos = list(fs.ls(dir_path, detail=True))
     found = []
     for info in infos:
@@ -173,6 +175,9 @@ def try_read_pq_dataset_from_meta_parts(
         raise NotImplementedError
     dedup_dir_path = HDFS_PREFIX_DEDUP / kafka_topic / meta.hdfs
     raw_dir_path = HDFS_PREFIX_KAFKA_TOPICS / kafka_topic / meta.hdfs
+    if not (fs.exists(str(dedup_dir_path)) or fs.exists(str(raw_dir_path))):
+        msg = f"{meta.hdfs} not found in kafka topic {kafka_topic!r}"
+        raise ValueError(msg)
     assert (min_part is None) == (max_part is None)
     dedup_pq_ds = None
     filter_expr = None

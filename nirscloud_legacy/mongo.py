@@ -44,6 +44,14 @@ def _try_to_meta_id(v: Any) -> Optional[MetaID]:
     return None if v == "" else MetaID.from_stripped_base64(v)
 
 
+def _to_nonempty_str(v: Any) -> Optional[PurePosixPath]:
+    return None if v == "" else str(v)
+
+
+def _to_group_id(v: Any) -> Optional[PurePosixPath]:
+    return None if v in ("", "_") else str(v)
+
+
 def _try_to_posix_path(v: Any) -> Optional[PurePosixPath]:
     return None if v == "/non-exists" else PurePosixPath(v)
 
@@ -159,10 +167,10 @@ class Meta(MongoMetaBase, database_name="meta"):
     measurement: str = query_field("measurement_id", str)
     subject: str = query_field("subject_id", str)
 
-    group: Optional[str] = query_field("group_id", str, default=None)
+    group: Optional[str] = query_field("group_id", _to_group_id, default=None)
     note_meta: Optional[MetaID] = query_field("note_id", _try_to_meta_id, default=None)
     measurement_notes: Optional[str] = query_field("note", str, default=None)
-    postfix: Optional[str] = query_field("postfix_id", str, default=None)
+    postfix: Optional[str] = query_field("postfix_id", _to_nonempty_str, default=None)
     session: Optional[str] = query_field("session_id", str, default=None)
     study: Optional[str] = query_field("study_id", str, default=None)
     device: Optional[str] = query_field("device_id", str, default=None)

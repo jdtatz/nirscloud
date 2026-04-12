@@ -39,6 +39,12 @@ def _convert_base_meta(meta: Meta) -> Attrs:
     }
     if meta.study:
         attrs["study"] = meta.study
+    if meta.group:
+        attrs["group"] = meta.group
+    if meta.postfix:
+        attrs["postfix"] = meta.postfix
+    if meta.operators:
+        attrs["operators"] = meta.operators
     if meta.session:
         attrs["session"] = meta.session
     if meta.device:

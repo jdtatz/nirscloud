@@ -1,3 +1,4 @@
+import warnings
 from typing import NamedTuple
 
 import numpy as np
@@ -14,12 +15,20 @@ class Metadata(NamedTuple):
     var_attrs: dict[str, Attrs]
 
 
+def _safe_update_attrs(ds: xr.Variable | xr.DataArray | xr.Dataset, attrs: Attrs):
+    for k, v in attrs.items():
+        if k in ds.attrs and ds.attrs[k] != v:
+            msg = f"overriding attribute {k!r} from {ds.attrs[k]!r} to {v!r}"
+            warnings.warn(msg, stacklevel=2)
+    ds.attrs.update(attrs)
+
+
 def update_metadata(ds: xr.Dataset, metadata: Metadata) -> xr.Dataset:
     ds.coords.update(metadata.coords)
-    ds.attrs.update(metadata.attrs)
+    _safe_update_attrs(ds, metadata.attrs)
     for k, attrs in metadata.var_attrs.items():
         if k in ds.data_vars:
-            ds[k].attrs.update(attrs)
+            _safe_update_attrs(ds[k], attrs)
     return ds
 
 

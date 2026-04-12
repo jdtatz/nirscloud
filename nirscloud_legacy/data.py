@@ -17,13 +17,15 @@ def _pa_scalar_shape(v: pa.Scalar):
         return ()
 
 
-def _from_chunked_array(carray: pa.ChunkedArray) -> np.ndarray:
+def _from_chunked_array(carray: pa.Array | pa.ChunkedArray) -> np.ndarray:
     # TODO: remove this workaround once `pa.StringArray.to_numpy()` no longer yields an object array
     if pa.types.is_string(carray.type):
         return np.array(carray.to_pylist())
     if pa.types.is_nested(carray.type):
         shape = (len(carray), *_pa_scalar_shape(carray[0]))
-        return carray.combine_chunks().flatten(recursive=True).to_numpy().reshape(shape)
+        if isinstance(carray, pa.ChunkedArray):
+            carray = carray.combine_chunks()
+        return carray.flatten(recursive=True).to_numpy().reshape(shape)
     else:
         return carray.to_numpy()
 
@@ -38,7 +40,7 @@ def _unique_squeezed_attr_or_drop(da: xr.DataArray):
     return da
 
 
-def _time_from_table(table: pa.Table):
+def _time_from_table(table: pa.RecordBatch | pa.Table):
     if "_nano_ts" in table.column_names:
         return _from_chunked_array(table["_nano_ts"]).astype("datetime64[ns]")
     elif "_milli_ts" in table.column_names:
@@ -56,7 +58,7 @@ def _start_from_ts_td(ts, dt, *, prefer_rela: bool = True):
     return dt if prefer_rela else ts, start_ts
 
 
-def _offset_time_from_table(table: pa.Table, *, prefer_rela: bool = True):
+def _offset_time_from_table(table: pa.RecordBatch | pa.Table, *, prefer_rela: bool = True):
     if "_offset_nano_ts" in table.column_names and "_nano_ts" in table.column_names:
         ## TODO: loading both arrays in their entirety for checking is overkill
         return _start_from_ts_td(
@@ -85,7 +87,11 @@ def _offset_time_from_table(table: pa.Table, *, prefer_rela: bool = True):
         )
 
 
-def nirs_ds_from_table(table: pa.Table, *, prefer_timedelta: bool = False):
+def nirs_ds_from_table(
+    table: pa.RecordBatch | pa.Table,
+    *,
+    prefer_timedelta: bool = False,
+):
     time, start = _offset_time_from_table(table, prefer_rela=prefer_timedelta)
     ds = (
         xr.Dataset(
@@ -106,7 +112,12 @@ def nirs_ds_from_table(table: pa.Table, *, prefer_timedelta: bool = False):
     return ds
 
 
-def dcs_ds_from_table(table: pa.Table, *, flipped_banks: Optional[bool] = None, prefer_timedelta: bool = False):
+def dcs_ds_from_table(
+    table: pa.RecordBatch | pa.Table,
+    *,
+    flipped_banks: Optional[bool] = None,
+    prefer_timedelta: bool = False,
+):
     tau = _from_chunked_array(table["t"])
     # assert np.unique(tau, axis=0).shape[0] == 1
     time, start = _offset_time_from_table(table, prefer_rela=prefer_timedelta)
@@ -129,7 +140,7 @@ def dcs_ds_from_table(table: pa.Table, *, flipped_banks: Optional[bool] = None, 
     return fix_flipped_banks(ds, flipped_banks=flipped_banks)
 
 
-def fastrak_raw_stacked_ds_from_table(table: pa.Table, *, prefer_timedelta: bool = False):
+def fastrak_raw_stacked_ds_from_table(table: pa.RecordBatch | pa.Table, *, prefer_timedelta: bool = False):
     # idx=0 is always the pen, idx=1 is always the nirs sensor, and if idx=2 exists then it's the head sensor (refrence point for dual-quat transformation)
 
     # Fasktrak may be at 60HZ, but our data has large gaps, so a modifed timedelta RangeIndex isn't applicable
@@ -193,7 +204,12 @@ def convert_raw_fastrak_ds(
     return xr.Dataset({"position": position, "orientation": orientation})
 
 
-def fastrak_stacked_ds_from_table(table: pa.Table, *, prefer_timedelta: bool = False, scalar_first: bool = False):
+def fastrak_stacked_ds_from_table(
+    table: pa.RecordBatch | pa.Table,
+    *,
+    prefer_timedelta: bool = False,
+    scalar_first: bool = False,
+):
     # idx=0 is always the pen, idx=1 is always the nirs sensor, and if idx=2 exists then it's the head sensor (refrence point for dual-quat transformation)
     cartesian_axes = "x", "y", "z"
     euler_axes = "a", "e", "r"
@@ -251,7 +267,7 @@ def unstack_fastrak_stacked_ds(
 
 
 def fastrak_ds_from_table(
-    table: pa.Table,
+    table: pa.RecordBatch | pa.Table,
     *,
     scalar_first: bool = True,
     keep: Literal["first", "last"] = "first",
@@ -261,7 +277,7 @@ def fastrak_ds_from_table(
     return unstack_fastrak_stacked_ds(stacked_ds, keep=keep, join=join)
 
 
-def finapres_ds_from_table(table: pa.Table):
+def finapres_ds_from_table(table: pa.RecordBatch | pa.Table):
     return xr.Dataset(
         data_vars={
             "pressure": ("time", _from_chunked_array(table["pressure_mmHg"]), {"units": "mmHg"}),
@@ -274,7 +290,7 @@ def finapres_ds_from_table(table: pa.Table):
     ).sortby("time")
 
 
-def id_val_dict_from_table(table: pa.Table, *attr_fields: str, **renamed_attr_fields: str):
+def id_val_dict_from_table(table: pa.RecordBatch | pa.Table, *attr_fields: str, **renamed_attr_fields: str):
     idval_da = xr.DataArray(
         _from_chunked_array(table["val"]),
         dims="time",
@@ -292,7 +308,7 @@ def id_val_dict_from_table(table: pa.Table, *attr_fields: str, **renamed_attr_fi
     return idval_da_dict
 
 
-def id_val_ds_from_table(table: pa.Table):
+def id_val_ds_from_table(table: pa.RecordBatch | pa.Table):
     return (
         xr.DataArray(
             _from_chunked_array(table["val"]),
@@ -308,11 +324,11 @@ def id_val_ds_from_table(table: pa.Table):
     )
 
 
-def patient_monitor_da_dict_from_table(table: pa.Table):
+def patient_monitor_da_dict_from_table(table: pa.RecordBatch | pa.Table):
     return id_val_dict_from_table(table)
 
 
-def vent_ds_from_table(table: pa.Table):
+def vent_ds_from_table(table: pa.RecordBatch | pa.Table):
     ds = id_val_ds_from_table(table)
     ds = ds.rename_vars(
         {"AFlo": "flow", "APre": "pressure", "Vol": "volume", "PHASE": "device_phase", "CO2m": "co2"}
@@ -321,7 +337,7 @@ def vent_ds_from_table(table: pa.Table):
     return ds
 
 
-def vent_n_ds_from_table(table: pa.Table):
+def vent_n_ds_from_table(table: pa.RecordBatch | pa.Table):
     return id_val_ds_from_table(table)
 
 

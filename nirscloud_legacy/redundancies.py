@@ -1,9 +1,11 @@
 import datetime
 import warnings
+from collections.abc import Callable
 from functools import partial
 from pathlib import Path, PurePosixPath
 
 import pyarrow as pa
+import pyarrow.compute as pc
 import pyarrow.dataset as pds
 import xarray as xr
 from fsspec import AbstractFileSystem
@@ -44,19 +46,38 @@ def has_missing_data(fs: AbstractFileSystem, dir_path: str | PurePosixPath):
     return False
 
 
-read_pq_dataset = partial(
+pq_dataset = partial(
     pds.dataset,
     format=pds.ParquetFileFormat(read_options={"list_type": pa.LargeListType}),
     ignore_prefixes=["."],
 )
 
 
-def read_pq_table(fs: AbstractFileSystem, dir_path: str | PurePosixPath) -> pa.Table:
+def read_pq_dataset(fs: AbstractFileSystem, dir_path: str | PurePosixPath) -> pds.FileSystemDataset:
     dir_path = str(dir_path)
     ## NOTE: can't use `fs.isfile` because it won't raise FileNotFoundError
     status = fs.info(dir_path)
-    pq_ds = read_pq_dataset(dir_path, filesystem=fs, partitioning=None if status["type"] == "file" else "hive")
-    return pq_ds.to_table()
+    pq_ds = pq_dataset(dir_path, filesystem=fs, partitioning=None if status["type"] == "file" else "hive")
+    return pq_ds
+
+
+def read_pq_table(fs: AbstractFileSystem, dir_path: str | PurePosixPath) -> pa.Table:
+    return read_pq_dataset(fs, dir_path).to_table()
+
+
+def try_read_pq_dataset(fs: AbstractFileSystem, *dir_paths: str | PurePosixPath):
+    incomplete_dir_paths = []
+    for dir_path in dir_paths:
+        dir_path = str(dir_path)  # noqa: PLW2901
+        if not fs.exists(dir_path):
+            continue
+        if has_missing_data(fs, dir_path):
+            ## NOTE: check if it has any data before adding it
+            if fs.find(dir_path):
+                incomplete_dir_paths.append(dir_path)
+            continue
+        return read_pq_dataset(fs, dir_path), False
+    return [read_pq_dataset(fs, dir_path) for dir_path in incomplete_dir_paths], True
 
 
 def try_read_pq_table(fs: AbstractFileSystem, *dir_paths: str | PurePosixPath):
@@ -74,7 +95,61 @@ def try_read_pq_table(fs: AbstractFileSystem, *dir_paths: str | PurePosixPath):
     return [read_pq_table(fs, dir_path) for dir_path in incomplete_dir_paths], True
 
 
+def try_read_pq_dataset_timestamp_sorted(
+    fs: AbstractFileSystem, dir_path: str | PurePosixPath
+) -> pds.FileSystemDataset | None:
+    dir_path = str(dir_path)
+    infos = list(fs.ls(dir_path, detail=True))
+    found = []
+    for info in infos:
+        fname = info["name"]
+        if info["type"] == "file":
+            # TODO: fall back to `pq_dataset(...)` and warn if `fs` doesn't support `modification_time`
+            found.append((info["modification_time"], fname))
+        elif not fname.startswith("."):
+            # TODO: better message and more accurate exception type
+            msg = f"Unexpected directory '{fname}' found in parquet dataset folder"
+            raise ValueError(msg)
+    _, pq_paths = zip(*sorted(found), strict=True)
+    if not pq_paths:
+        return None
+    return pq_dataset(pq_paths, filesystem=fs, partitioning=None)
+
+
+def try_read_pq_dataset_from_parts(
+    fs: AbstractFileSystem, dir_path: str | PurePosixPath, missing: set[int]
+) -> tuple[pds.FileSystemDataset | None, set[int]]:
+    dir_path = str(dir_path)
+    missing = missing.copy()
+    pq_paths = {}
+    for root, _dirs, files in fs.walk(dir_path):
+        if not files:
+            continue
+        part_dir = PurePosixPath(root)
+        assert part_dir.stem.startswith("_part=")
+        part = int(part_dir.stem.removeprefix("_part="))
+        if part not in missing:
+            continue
+        missing.remove(part)
+        assert len(files) == 1
+        (pq_file,) = files
+        pq_paths[part] = str(part_dir / pq_file)
+    sorted_pq_paths = [f for _p, f in sorted(pq_paths.items())]
+    if not sorted_pq_paths:
+        return None, missing
+    return pq_dataset(sorted_pq_paths, filesystem=fs, partitioning="hive", partition_base_dir=dir_path), missing
+
+
 _HDFS_BASE_PREFIXES = HDFS_PREFIX_DEDUP, HDFS_PREFIX_KAFKA_TOPICS
+
+
+def try_read_pq_dataset_from_meta(
+    fs: AbstractFileSystem,
+    meta: Meta,
+    kafka_topic: str,
+    hdfs_prefix_options: tuple[PurePosixPath, ...] = _HDFS_BASE_PREFIXES,
+):
+    return try_read_pq_dataset(fs, *(prefix / kafka_topic / meta.hdfs for prefix in hdfs_prefix_options))
 
 
 def try_read_pq_table_from_meta(
@@ -86,7 +161,92 @@ def try_read_pq_table_from_meta(
     return try_read_pq_table(fs, *(prefix / kafka_topic / meta.hdfs for prefix in hdfs_prefix_options))
 
 
-def read_nirs_ds_from_meta_raw(meta: NIRSMeta, smb_path: Path):
+def try_read_pq_dataset_from_meta_parts(
+    fs: AbstractFileSystem,
+    meta: Meta,
+    min_part: int | None,
+    max_part: int | None,
+    kafka_topic: str,
+    agg_prefix: PurePosixPath | None = None,
+):
+    if agg_prefix is not None:
+        raise NotImplementedError
+    dedup_dir_path = HDFS_PREFIX_DEDUP / kafka_topic / meta.hdfs
+    raw_dir_path = HDFS_PREFIX_KAFKA_TOPICS / kafka_topic / meta.hdfs
+    assert (min_part is None) == (max_part is None)
+    dedup_pq_ds = None
+    filter_expr = None
+    if min_part is not None and max_part is not None:
+        missing = set(range(min_part, 1 + max_part))
+        dedup_pq_ds, missing = try_read_pq_dataset_from_parts(fs, dedup_dir_path, missing)
+        if dedup_pq_ds is not None:
+            if len(missing) == 0:
+                return dedup_pq_ds, None, False
+            filter_expr = pc.field("_part").isin(missing)
+    raw_pq_ds = try_read_pq_dataset_timestamp_sorted(fs, raw_dir_path)
+    if raw_pq_ds is None:
+        return dedup_pq_ds, None, True
+    # TODO: is this really reliable?
+    if not has_missing_data(fs, raw_dir_path):
+        return None, raw_pq_ds, False
+    if filter_expr is not None:
+        raw_pq_ds = raw_pq_ds.filter(filter_expr)
+    # TOOD: return a single `UnionDataset` once it's supported, current error is `ValueError: Creating an UnionDataset from filtered or projected Datasets is currently not supported`
+    return dedup_pq_ds, raw_pq_ds, True
+
+
+def try_read_raw_ds_from_meta_parts(
+    from_table: Callable[[pa.RecordBatch], xr.Dataset],
+    fs: AbstractFileSystem,
+    meta: Meta,
+    expected_n: int,
+    min_part: int | None,
+    max_part: int | None,
+    kafka_topic: str,
+    agg_prefix: PurePosixPath | None = None,
+    dim: str = "time",
+    cols: list[str] | None = None,
+):
+    dedup_pq_ds, raw_pq_ds, missing = try_read_pq_dataset_from_meta_parts(
+        fs, meta, min_part, max_part, kafka_topic, agg_prefix
+    )
+    needs_dedup = raw_pq_ds is not None
+    pq_dss = []
+    if dedup_pq_ds is not None:
+        pq_dss.append(dedup_pq_ds)
+    if raw_pq_ds is not None:
+        pq_dss.append(raw_pq_ds)
+
+    if pq_dss:
+        raw_ds = xr.concat(
+            [from_table(rb) for pq_ds in pq_dss for rb in pq_ds.to_batches(columns=cols) if rb.num_rows > 0], dim=dim
+        ).sortby(dim)
+        if needs_dedup:
+            n_dup = raw_ds.sizes[dim]
+            raw_ds = raw_ds.drop_duplicates(dim)
+            n_dedup = raw_ds.sizes[dim]
+            if n_dedup == n_dup:
+                warnings.warn("de-dup wasn't needed")
+        # assert not np.any(np.diff(raw_ds[dim]) == 0)
+        raw_n_time = raw_ds.sizes[dim]
+        if not missing:
+            return raw_ds, False
+        elif raw_n_time >= expected_n:
+            if raw_n_time > expected_n:
+                warnings.warn(f"{meta.meta!r}: Expected {expected_n} points, but found {raw_n_time}")
+            return raw_ds, False
+    else:
+        raw_ds = None
+    return raw_ds, True
+
+
+def read_nirs_ds_from_meta_raw(
+    meta: NIRSMeta,
+    smb_path: Path,
+    *,
+    contiguous: bool = True,
+    transpose: bool = True,
+):
     if meta.nirsraw_filepath is None:
         raise ValueError("`meta.nirsraw_filepath` is `None`")
     elif meta.nirsraw_filepath.parts[:2] != ("/", "smb"):
@@ -107,11 +267,23 @@ def read_nirs_ds_from_meta_raw(meta: NIRSMeta, smb_path: Path):
     else:
         nirs_hz = int(meta.nirs_hz)
 
-    raw_ds = read_nirsraw(nirsraw_filepath, ndet, nwavelength, nirs_hz=nirs_hz)
-    return raw_ds
+    return read_nirsraw(
+        nirsraw_filepath,
+        ndet,
+        nwavelength,
+        nirs_hz=nirs_hz,
+        contiguous=contiguous,
+        transpose=transpose,
+    )
 
 
-def read_dcs_ds_from_meta_raw(meta: DCSMeta, smb_path: Path):
+def read_dcs_ds_from_meta_raw(
+    meta: DCSMeta,
+    smb_path: Path,
+    *,
+    contiguous: bool = True,
+    transpose: bool = True,
+):
     if meta.dcsraw_filepath is None:
         raise ValueError("`meta.dcsraw_filepath` is `None`")
     elif meta.dcsraw_filepath.parts[:2] != ("/", "smb"):
@@ -126,8 +298,13 @@ def read_dcs_ds_from_meta_raw(meta: DCSMeta, smb_path: Path):
     else:
         dcs_hz = int(meta.dcs_hz)
 
-    raw_ds = read_dcsraw(dcsraw_filepath, dcs_hz=dcs_hz, flipped_banks=meta.flipped_banks)
-    return raw_ds
+    return read_dcsraw(
+        dcsraw_filepath,
+        dcs_hz=dcs_hz,
+        flipped_banks=meta.flipped_banks,
+        contiguous=contiguous,
+        transpose=transpose,
+    )
 
 
 def try_read_nirs_ds_from_meta_inner(
@@ -137,30 +314,29 @@ def try_read_nirs_ds_from_meta_inner(
     *,
     prefer_timedelta: bool = False,
 ):
-    from_table = partial(nirs_ds_from_table, prefer_timedelta=prefer_timedelta)
-    table, missing = try_read_pq_table_from_meta(fs, meta, KAFKA_TOPICS_N)
+    from_table = partial(nirs_ds_from_table, prefer_timedelta=prefer_timedelta, sort=False)
+    raw_ds, missing = try_read_raw_ds_from_meta_parts(
+        from_table,
+        fs,
+        meta,
+        meta.n_nirs,
+        meta.n_nirs_min_part,
+        meta.n_nirs_max_part,
+        kafka_topic=KAFKA_TOPICS_N,
+        dim="time",
+        cols=["_nano_ts", "_offset_nano_ts", "ac", "phase", "dc", "dark", "aux"],
+    )
     if not missing:
-        raw_ds = from_table(table)
-        ## Need to dedup here, since it may be read from `/kafka/topics/metaox_nirs_rs` which has duplicates still
-        return raw_ds.drop_duplicates("time"), False, False
-    elif table:
-        raw_ds = xr.concat([from_table(t) for t in table], "time", join="outer").sortby("time").drop_duplicates("time")
-        raw_n_time = raw_ds.sizes["time"]
-        if raw_n_time >= meta.n_nirs:
-            if raw_n_time > meta.n_nirs:
-                warnings.warn(f"{meta.meta!r}: Expected {meta.n_nirs} time points, but found {raw_n_time}")
-            return raw_ds, False, False
+        return raw_ds, False, False
     elif meta.nirsraw_filepath is None:
         raise FileNotFoundError(meta.hdfs)
-    else:
-        raw_ds = None
 
     if meta.nirsraw_filepath is None:
         return raw_ds, True, False
     elif meta.nirsraw_filepath.parts[:2] != ("/", "smb"):
         warnings.warn(f'{meta.meta!r}: nirsraw_filepath {meta.nirsraw_filepath} doesn\'t start with "/smb"')
         return raw_ds, True, False
-    nirsraw_ds = read_nirs_ds_from_meta_raw(meta, smb_path)
+    nirsraw_ds = read_nirs_ds_from_meta_raw(meta, smb_path, contiguous=raw_ds is None)
     if not prefer_timedelta:
         if raw_ds and "start" in raw_ds.attrs:
             nirsraw_ds["time"] = raw_ds.attrs["start"] + nirsraw_ds["time"]
@@ -212,30 +388,34 @@ def try_read_dcs_ds_from_meta_inner(
     *,
     prefer_timedelta: bool = False,
 ):
-    from_table = partial(dcs_ds_from_table, flipped_banks=meta.flipped_banks, prefer_timedelta=prefer_timedelta)
-    table, missing = try_read_pq_table_from_meta(fs, meta, KAFKA_TOPICS_D)
+    from_table = partial(
+        dcs_ds_from_table,
+        flipped_banks=meta.flipped_banks,
+        prefer_timedelta=prefer_timedelta,
+        sort=False,
+    )
+    raw_ds, missing = try_read_raw_ds_from_meta_parts(
+        from_table,
+        fs,
+        meta,
+        meta.n_dcs,
+        meta.n_dcs_min_part,
+        meta.n_dcs_max_part,
+        kafka_topic=KAFKA_TOPICS_D,
+        dim="time",
+        cols=["_nano_ts", "_offset_nano_ts", "t", "CPS", "t_val"],
+    )
     if not missing:
-        raw_ds = from_table(table)
-        ## Need to dedup here, since it may be read from `/kafka/topics/metaox_dcs_s` which has duplicates still
-        return raw_ds.drop_duplicates("time"), False, False
-    elif table:
-        raw_ds = xr.concat([from_table(t) for t in table], "time", join="outer").sortby("time").drop_duplicates("time")
-        raw_n_time = raw_ds.sizes["time"]
-        if raw_n_time >= meta.n_dcs:
-            if raw_n_time > meta.n_dcs:
-                warnings.warn(f"{meta.meta!r}: Expected {meta.n_dcs} time points, but found {raw_n_time}")
-            return raw_ds, False, False
+        return raw_ds, False, False
     elif meta.dcsraw_filepath is None:
         raise FileNotFoundError(meta.hdfs)
-    else:
-        raw_ds = None
 
     if meta.dcsraw_filepath is None:
         return raw_ds, True, False
     elif meta.dcsraw_filepath.parts[:2] != ("/", "smb"):
         warnings.warn(f'{meta.meta!r}: dcsraw_filepath {meta.dcsraw_filepath} doesn\'t start with "/smb"')
         return raw_ds, True, False
-    dcsraw_ds = read_dcs_ds_from_meta_raw(meta, smb_path)
+    dcsraw_ds = read_dcs_ds_from_meta_raw(meta, smb_path, contiguous=raw_ds is None)
     if not prefer_timedelta:
         if raw_ds and "start" in raw_ds.attrs:
             dcsraw_ds["time"] = raw_ds.attrs["start"] + dcsraw_ds["time"]

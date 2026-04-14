@@ -318,8 +318,9 @@ def try_read_nirs_ds_from_meta_inner(
     smb_path: Path,
     *,
     prefer_timedelta: bool = False,
+    transpose: bool = True,
 ):
-    from_table = partial(nirs_ds_from_table, prefer_timedelta=prefer_timedelta, sort=False)
+    from_table = partial(nirs_ds_from_table, prefer_timedelta=prefer_timedelta, transpose=transpose, sort=False)
     raw_ds, missing = try_read_raw_ds_from_meta_parts(
         from_table,
         fs,
@@ -341,7 +342,7 @@ def try_read_nirs_ds_from_meta_inner(
     elif meta.nirsraw_filepath.parts[:2] != ("/", "smb"):
         warnings.warn(f'{meta.meta!r}: nirsraw_filepath {meta.nirsraw_filepath} doesn\'t start with "/smb"')
         return raw_ds, True, False
-    nirsraw_ds = read_nirs_ds_from_meta_raw(meta, smb_path, contiguous=raw_ds is None)
+    nirsraw_ds = read_nirs_ds_from_meta_raw(meta, smb_path, transpose=transpose, contiguous=raw_ds is None)
     if not prefer_timedelta:
         if raw_ds and "start" in raw_ds.attrs:
             nirsraw_ds["time"] = raw_ds.attrs["start"] + nirsraw_ds["time"]
@@ -360,6 +361,7 @@ def try_read_nirs_ds_from_meta(
     smb_path: Path,
     *,
     prefer_timedelta: bool = False,
+    transpose: bool = True,
 ):
     """Read NIRS data from the cluster using the redudant non-deduplicated data and falling back to
     the `.nirsraw` backup on the fileshare to account for partial data after the
@@ -376,8 +378,12 @@ def try_read_nirs_ds_from_meta(
         the mounted location of the fileshare. On our jupyterhub that is '/home'
     prefer_timedelta
         prefer the `time` coordinate as a timedelta64 instead of datetime64
+    transpose
+        transpose the `time` coordinate to be the last coordinate instead of the first
     """
-    ds, missing, from_nirsraw = try_read_nirs_ds_from_meta_inner(fs, meta, smb_path, prefer_timedelta=prefer_timedelta)
+    ds, missing, from_nirsraw = try_read_nirs_ds_from_meta_inner(
+        fs, meta, smb_path, prefer_timedelta=prefer_timedelta, transpose=transpose
+    )
     if missing:
         warnings.warn(f"{meta.meta!r}: missing data")
     if from_nirsraw:
@@ -392,11 +398,13 @@ def try_read_dcs_ds_from_meta_inner(
     smb_path: Path,
     *,
     prefer_timedelta: bool = False,
+    transpose: bool = True,
 ):
     from_table = partial(
         dcs_ds_from_table,
         flipped_banks=meta.flipped_banks,
         prefer_timedelta=prefer_timedelta,
+        transpose=transpose,
         sort=False,
     )
     raw_ds, missing = try_read_raw_ds_from_meta_parts(
@@ -420,7 +428,7 @@ def try_read_dcs_ds_from_meta_inner(
     elif meta.dcsraw_filepath.parts[:2] != ("/", "smb"):
         warnings.warn(f'{meta.meta!r}: dcsraw_filepath {meta.dcsraw_filepath} doesn\'t start with "/smb"')
         return raw_ds, True, False
-    dcsraw_ds = read_dcs_ds_from_meta_raw(meta, smb_path, contiguous=raw_ds is None)
+    dcsraw_ds = read_dcs_ds_from_meta_raw(meta, smb_path, transpose=transpose, contiguous=raw_ds is None)
     if not prefer_timedelta:
         if raw_ds and "start" in raw_ds.attrs:
             dcsraw_ds["time"] = raw_ds.attrs["start"] + dcsraw_ds["time"]
@@ -433,7 +441,9 @@ def try_read_dcs_ds_from_meta_inner(
     return ds, False, True
 
 
-def try_read_dcs_ds_from_meta(fs: AbstractFileSystem, meta: DCSMeta, smb_path: Path, *, prefer_timedelta: bool = False):
+def try_read_dcs_ds_from_meta(
+    fs: AbstractFileSystem, meta: DCSMeta, smb_path: Path, *, prefer_timedelta: bool = False, transpose: bool = True
+):
     """Read DCS data from the cluster using the redudant non-deduplicated data and falling back to
     the `.dcsraw` backup on the fileshare to account for partial data after the
     cluster data loss incident on March 27th 2024
@@ -449,8 +459,12 @@ def try_read_dcs_ds_from_meta(fs: AbstractFileSystem, meta: DCSMeta, smb_path: P
         the mounted location of the fileshare. On our jupyterhub that is '/home'
     prefer_timedelta
         prefer the `time` coordinate as a timedelta64 instead of datetime64
+    transpose
+        transpose the `time` coordinate to be the last coordinate instead of the first
     """
-    ds, missing, from_dcsraw = try_read_dcs_ds_from_meta_inner(fs, meta, smb_path, prefer_timedelta=prefer_timedelta)
+    ds, missing, from_dcsraw = try_read_dcs_ds_from_meta_inner(
+        fs, meta, smb_path, prefer_timedelta=prefer_timedelta, transpose=transpose
+    )
     if missing:
         warnings.warn(f"{meta.meta!r}: missing data")
     if from_dcsraw:

@@ -39,37 +39,28 @@ def try_pop_extra_attrs(ds: xr.DataArray | xr.Dataset, time_coord: str = "time")
     if not np.isdtype(time.dtype, np.datetime64):
         return ds
     if "start" in ds.attrs:
-        start = ds.attrs["start"]
+        start = ds.attrs.pop("start")
         startv = time[0].values
         if start != startv:
             msg = f"start times differ between the metadata {start!r} and the data {startv}"
             warnings.warn(msg, stacklevel=2)
-        else:
-            ds.attrs.pop("start")
+            ds.attrs["start"] = str(start)
     if "end" in ds.attrs:
-        end = ds.attrs["end"]
+        end = ds.attrs.pop("end")
         endv = time[-1].values
         if end != endv:
             msg = f"end times differ between the metadata {end!r} and the data {endv}"
             warnings.warn(msg, stacklevel=2)
-        else:
-            ds.attrs.pop("end")
+            ds.attrs["end"] = str(end)
     return ds
-
-
-def _to_datetime_scalar(v, unit="D"):
-    if isinstance(v, np.generic):
-        return v.astype(f"datetime64[{unit}]")
-    else:
-        return np.datetime64(v, unit)
 
 
 def _convert_base_meta(meta: Meta) -> Attrs:
     attrs = {
         "subject": meta.subject,
-        "date": _to_datetime_scalar(meta.date),
+        "date": str(meta.date),
         "measurement": meta.measurement,
-        "meta_id": meta.meta,
+        "meta_id": str(meta.meta),
     }
     if meta.study:
         attrs["study"] = meta.study
@@ -84,7 +75,7 @@ def _convert_base_meta(meta: Meta) -> Attrs:
     if meta.device:
         attrs["device"] = meta.device
     if meta.note_meta:
-        attrs["note_id"] = meta.note_meta
+        attrs["note_id"] = str(meta.note_meta)
     if meta.measurement_notes:
         attrs["notes"] = meta.measurement_notes
     return attrs
@@ -94,7 +85,7 @@ def convert_nirs_meta(meta: NIRSMeta | MetaOxMeta) -> Metadata:
     attrs = _convert_base_meta(meta)
 
     if meta.duration is not None:
-        attrs["duration"] = meta.duration
+        attrs["duration"] = meta.duration.total_seconds()
     if meta.nirs_start is not None:
         attrs["start"] = meta.nirs_start
     if meta.nirs_end is not None:
@@ -119,7 +110,7 @@ def convert_dcs_meta(meta: DCSMeta | MetaOxMeta) -> Metadata:
     attrs = _convert_base_meta(meta)
 
     if meta.duration is not None:
-        attrs["duration"] = meta.duration
+        attrs["duration"] = meta.duration.total_seconds()
     if meta.dcs_start is not None:
         attrs["start"] = meta.dcs_start
     if meta.dcs_end is not None:

@@ -49,7 +49,7 @@ def _to_nonempty_str(v: Any) -> Optional[PurePosixPath]:
 
 
 def _to_group_id(v: Any) -> Optional[PurePosixPath]:
-    return None if v in ("", "_") else str(v)
+    return None if v in ("", "_", "_unknown_") else str(v)
 
 
 def _try_to_posix_path(v: Any) -> Optional[PurePosixPath]:
@@ -173,9 +173,20 @@ class Meta(MongoMetaBase, database_name="meta"):
     postfix: Optional[str] = query_field("postfix_id", _to_nonempty_str, default=None)
     session: Optional[str] = query_field("session_id", str, default=None)
     study: Optional[str] = query_field("study_id", str, default=None)
-    device: Optional[str] = query_field("device_id", str, default=None)
+    device_id: Optional[str] = query_field("device_id", str, default=None)
+    _device: Optional[str] = query_field("device", str, default=None)
     operators: tuple[str, ...] = query_field("operators", tuple, default_factory=tuple)
     file_prefix: Optional[PurePath] = query_field("file_prefix", PureWindowsPath, default=None)
+
+    @property
+    def device(self) -> Optional[str]:
+        if self.device_id is not None and self._device is not None:
+            if self.device_id != self._device:
+                # NOTE: verified this never happens
+                msg = f"conflicting device ids {self.device_id!r} != {self._device!r}"
+                warnings.warn(msg, stacklevel=2)
+            return self.device_id
+        return self.device_id or self._device
 
 
 # class NotesMeta(Meta, database_name="meta"):

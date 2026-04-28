@@ -106,8 +106,15 @@ def try_read_pq_dataset_timestamp_sorted(
     for info in infos:
         fname = info["name"]
         if info["type"] == "file":
-            # TODO: fall back to `pq_dataset(...)` and warn if `fs` doesn't support `modification_time`
-            found.append((info["modification_time"], fname))
+            # TODO: use the standard key once they decide on one https://github.com/fsspec/filesystem_spec/issues/526
+            if "mtime" in info:
+                found.append((info["mtime"], fname))
+            elif "modified" in info:
+                found.append((info["modified"], fname))
+            elif "modification_time" in info:
+                found.append((info["modification_time"], fname))
+            else:
+                found.append((fs.modified(fname), fname))
         elif not fname.startswith("."):
             # TODO: better message and more accurate exception type
             msg = f"Unexpected directory '{fname}' found in parquet dataset folder"

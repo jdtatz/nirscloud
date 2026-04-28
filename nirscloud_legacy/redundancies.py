@@ -9,12 +9,10 @@ import pyarrow.compute as pc
 import pyarrow.dataset as pds
 import xarray as xr
 from fsspec import AbstractFileSystem
+from fsspec.implementations.local import LocalFileSystem
 from metaox_parser import read_dcsraw, read_nirsraw
 
 from .constants import (
-    HDFS_PREFIX_AGG,
-    HDFS_PREFIX_DEDUP,
-    HDFS_PREFIX_KAFKA_TOPICS,
     KAFKA_TOPICS_D,
     KAFKA_TOPICS_FT,
     KAFKA_TOPICS_FT_CM,
@@ -149,39 +147,52 @@ def try_read_pq_dataset_from_parts(
     return pq_dataset(sorted_pq_paths, filesystem=fs, partitioning="hive", partition_base_dir=dir_path), missing
 
 
-_HDFS_BASE_PREFIXES = HDFS_PREFIX_DEDUP, HDFS_PREFIX_KAFKA_TOPICS
+_HDFS_ROOT = PurePosixPath("/")
+_HDFS_BASE_PREFIXES = PurePosixPath("nirscloud/dedup"), PurePosixPath("kafka/topics")
+
+
+def _get_fs_hdfs_root(fs: Path | AbstractFileSystem) -> tuple[AbstractFileSystem, Path | PurePosixPath]:
+    if isinstance(fs, AbstractFileSystem):
+        return fs, _HDFS_ROOT
+    else:
+        if not isinstance(fs, Path):
+            raise NotImplementedError
+        return LocalFileSystem(), fs
 
 
 def try_read_pq_dataset_from_meta(
-    fs: AbstractFileSystem,
+    hdfs: Path | AbstractFileSystem,
     meta: Meta,
     kafka_topic: str,
     hdfs_prefix_options: tuple[PurePosixPath, ...] = _HDFS_BASE_PREFIXES,
 ):
-    return try_read_pq_dataset(fs, *(prefix / kafka_topic / meta.hdfs for prefix in hdfs_prefix_options))
+    fs, hdfs_root = _get_fs_hdfs_root(hdfs)
+    return try_read_pq_dataset(fs, *(hdfs_root / prefix / kafka_topic / meta.hdfs for prefix in hdfs_prefix_options))
 
 
 def try_read_pq_table_from_meta(
-    fs: AbstractFileSystem,
+    hdfs: Path | AbstractFileSystem,
     meta: Meta,
     kafka_topic: str,
     hdfs_prefix_options: tuple[PurePosixPath, ...] = _HDFS_BASE_PREFIXES,
 ):
-    return try_read_pq_table(fs, *(prefix / kafka_topic / meta.hdfs for prefix in hdfs_prefix_options))
+    fs, hdfs_root = _get_fs_hdfs_root(hdfs)
+    return try_read_pq_table(fs, *(hdfs_root / prefix / kafka_topic / meta.hdfs for prefix in hdfs_prefix_options))
 
 
 def try_read_pq_dataset_from_meta_parts(
-    fs: AbstractFileSystem,
+    hdfs: Path | AbstractFileSystem,
     meta: Meta,
     min_part: int | None,
     max_part: int | None,
     kafka_topic: str,
-    agg_prefix: PurePosixPath | None = None,
+    agg_prefix: str | None = None,
 ):
+    fs, hdfs_root = _get_fs_hdfs_root(hdfs)
     if agg_prefix is not None:
         raise NotImplementedError
-    dedup_dir_path = HDFS_PREFIX_DEDUP / kafka_topic / meta.hdfs
-    raw_dir_path = HDFS_PREFIX_KAFKA_TOPICS / kafka_topic / meta.hdfs
+    dedup_dir_path = hdfs_root / "nirscloud/dedup" / kafka_topic / meta.hdfs
+    raw_dir_path = hdfs_root / "kafka/topics" / kafka_topic / meta.hdfs
     if not (fs.exists(str(dedup_dir_path)) or fs.exists(str(raw_dir_path))):
         msg = f"{meta.hdfs} not found in kafka topic {kafka_topic!r}"
         raise ValueError(msg)
@@ -209,7 +220,7 @@ def try_read_pq_dataset_from_meta_parts(
 
 def try_read_raw_ds_from_meta_parts(
     from_table: Callable[[pa.RecordBatch], xr.Dataset],
-    fs: AbstractFileSystem,
+    hdfs: Path | AbstractFileSystem,
     meta: Meta,
     expected_n: int,
     min_part: int | None,
@@ -220,7 +231,7 @@ def try_read_raw_ds_from_meta_parts(
     cols: list[str] | None = None,
 ):
     dedup_pq_ds, raw_pq_ds, missing = try_read_pq_dataset_from_meta_parts(
-        fs, meta, min_part, max_part, kafka_topic, agg_prefix
+        hdfs, meta, min_part, max_part, kafka_topic, agg_prefix
     )
     needs_dedup = raw_pq_ds is not None
     pq_dss = []
@@ -320,7 +331,7 @@ def read_dcs_ds_from_meta_raw(
 
 
 def try_read_nirs_ds_from_meta_inner(
-    fs: AbstractFileSystem,
+    hdfs: Path | AbstractFileSystem,
     meta: NIRSMeta,
     smb_path: Path,
     *,
@@ -330,7 +341,7 @@ def try_read_nirs_ds_from_meta_inner(
     from_table = partial(nirs_ds_from_table, prefer_timedelta=prefer_timedelta, transpose=transpose, sort=False)
     raw_ds, missing = try_read_raw_ds_from_meta_parts(
         from_table,
-        fs,
+        hdfs,
         meta,
         meta.n_nirs,
         meta.n_nirs_min_part,
@@ -363,7 +374,7 @@ def try_read_nirs_ds_from_meta_inner(
 
 
 def try_read_nirs_ds_from_meta(
-    fs: AbstractFileSystem,
+    hdfs: Path | AbstractFileSystem,
     meta: NIRSMeta,
     smb_path: Path,
     *,
@@ -376,8 +387,8 @@ def try_read_nirs_ds_from_meta(
 
     Parameters
     ----------
-    fs
-        A wrapped `HdfsFileSystem` to access the cluster
+    hdfs
+        The mounted location or `fsspec` file-system interface to access the hdfs data
     meta
         A mongo document describing the metadata of a measurement
     smb_path
@@ -389,7 +400,7 @@ def try_read_nirs_ds_from_meta(
         transpose the `time` coordinate to be the last coordinate instead of the first
     """
     ds, missing, from_nirsraw = try_read_nirs_ds_from_meta_inner(
-        fs, meta, smb_path, prefer_timedelta=prefer_timedelta, transpose=transpose
+        hdfs, meta, smb_path, prefer_timedelta=prefer_timedelta, transpose=transpose
     )
     if missing:
         warnings.warn(f"{meta.meta!r}: missing data")
@@ -400,7 +411,7 @@ def try_read_nirs_ds_from_meta(
 
 
 def try_read_dcs_ds_from_meta_inner(
-    fs: AbstractFileSystem,
+    hdfs: Path | AbstractFileSystem,
     meta: DCSMeta,
     smb_path: Path,
     *,
@@ -416,7 +427,7 @@ def try_read_dcs_ds_from_meta_inner(
     )
     raw_ds, missing = try_read_raw_ds_from_meta_parts(
         from_table,
-        fs,
+        hdfs,
         meta,
         meta.n_dcs,
         meta.n_dcs_min_part,
@@ -449,7 +460,12 @@ def try_read_dcs_ds_from_meta_inner(
 
 
 def try_read_dcs_ds_from_meta(
-    fs: AbstractFileSystem, meta: DCSMeta, smb_path: Path, *, prefer_timedelta: bool = False, transpose: bool = True
+    hdfs: Path | AbstractFileSystem,
+    meta: DCSMeta,
+    smb_path: Path,
+    *,
+    prefer_timedelta: bool = False,
+    transpose: bool = True,
 ):
     """Read DCS data from the cluster using the redudant non-deduplicated data and falling back to
     the `.dcsraw` backup on the fileshare to account for partial data after the
@@ -457,8 +473,8 @@ def try_read_dcs_ds_from_meta(
 
     Parameters
     ----------
-    fs
-        A wrapped `HdfsFileSystem` to access the cluster
+    hdfs
+        The mounted location or `fsspec` file-system interface to access the hdfs data
     meta
         A mongo document describing the metadata of a measurement
     smb_path
@@ -470,7 +486,7 @@ def try_read_dcs_ds_from_meta(
         transpose the `time` coordinate to be the last coordinate instead of the first
     """
     ds, missing, from_dcsraw = try_read_dcs_ds_from_meta_inner(
-        fs, meta, smb_path, prefer_timedelta=prefer_timedelta, transpose=transpose
+        hdfs, meta, smb_path, prefer_timedelta=prefer_timedelta, transpose=transpose
     )
     if missing:
         warnings.warn(f"{meta.meta!r}: missing data")
@@ -481,7 +497,7 @@ def try_read_dcs_ds_from_meta(
 
 
 def try_read_fastrak_stacked_ds_from_meta(
-    fs: AbstractFileSystem,
+    hdfs: Path | AbstractFileSystem,
     meta: FastrakMeta,
     *,
     raw: bool = False,
@@ -493,12 +509,16 @@ def try_read_fastrak_stacked_ds_from_meta(
         if raw
         else partial(fastrak_stacked_ds_from_table, scalar_first=scalar_first, prefer_timedelta=prefer_timedelta)
     )
-    table, missing = try_read_pq_table_from_meta(fs, meta, KAFKA_TOPICS_FT_CM, (HDFS_PREFIX_AGG, *_HDFS_BASE_PREFIXES))
+    table, missing = try_read_pq_table_from_meta(
+        hdfs, meta, KAFKA_TOPICS_FT_CM, (PurePosixPath("nirscloud/agg"), *_HDFS_BASE_PREFIXES)
+    )
     if missing and not table:
-        table, missing = try_read_pq_table_from_meta(fs, meta, KAFKA_TOPICS_FT, (HDFS_PREFIX_AGG, *_HDFS_BASE_PREFIXES))
+        table, missing = try_read_pq_table_from_meta(
+            hdfs, meta, KAFKA_TOPICS_FT, (PurePosixPath("nirscloud/agg"), *_HDFS_BASE_PREFIXES)
+        )
     if missing and not table:
         # FIXME: data in the "fastrak_s" topic doesn't have the "list_id" variable
-        table, missing = try_read_pq_table_from_meta(fs, meta, "fastrak_s")
+        table, missing = try_read_pq_table_from_meta(hdfs, meta, "fastrak_s")
     if missing and not table:
         raise FileNotFoundError(meta.hdfs)
     elif not missing:

@@ -25,6 +25,8 @@ from .data import (
 from .metadata import convert_dcs_meta, convert_fastrak_meta, convert_nirs_meta, try_pop_extra_attrs, update_metadata
 from .mongo import DCSMeta, FastrakMeta, Meta, NIRSMeta
 
+__all__ = ["try_read_dcs_ds_from_meta", "try_read_fastrak_raw_stacked_ds_from_meta", "try_read_nirs_ds_from_meta"]
+
 ## After NE136 on 2024-03-27 '/nirscloud/dedup/metaox_nirs_rs/_study_id=CCHU/_group_id=_/_subject_id=NE136/_the_date=2024-03-27/_meta_id=xNR9hfs21EKC2dk782WfTA'
 missing_start_date = datetime.datetime(2024, 3, 27, 11, 16, tzinfo=datetime.UTC)
 ## TODO: more precise
@@ -47,48 +49,6 @@ pq_dataset = partial(
     format=pds.ParquetFileFormat(read_options={"list_type": pa.LargeListType}),
     ignore_prefixes=["."],
 )
-
-
-def read_pq_dataset(fs: AbstractFileSystem, dir_path: str | PurePosixPath) -> pds.FileSystemDataset:
-    dir_path = str(dir_path)
-    ## NOTE: can't use `fs.isfile` because it won't raise FileNotFoundError
-    status = fs.info(dir_path)
-    pq_ds = pq_dataset(dir_path, filesystem=fs, partitioning=None if status["type"] == "file" else "hive")
-    return pq_ds
-
-
-def read_pq_table(fs: AbstractFileSystem, dir_path: str | PurePosixPath) -> pa.Table:
-    return read_pq_dataset(fs, dir_path).to_table()
-
-
-def try_read_pq_dataset(fs: AbstractFileSystem, *dir_paths: str | PurePosixPath):
-    incomplete_dir_paths = []
-    for dir_path in dir_paths:
-        dir_path = str(dir_path)  # noqa: PLW2901
-        if not fs.exists(dir_path):
-            continue
-        if has_missing_data(fs, dir_path):
-            ## NOTE: check if it has any data before adding it
-            if fs.find(dir_path):
-                incomplete_dir_paths.append(dir_path)
-            continue
-        return read_pq_dataset(fs, dir_path), False
-    return [read_pq_dataset(fs, dir_path) for dir_path in incomplete_dir_paths], True
-
-
-def try_read_pq_table(fs: AbstractFileSystem, *dir_paths: str | PurePosixPath):
-    incomplete_dir_paths = []
-    for dir_path in dir_paths:
-        dir_path = str(dir_path)  # noqa: PLW2901
-        if not fs.exists(dir_path):
-            continue
-        if has_missing_data(fs, dir_path):
-            ## NOTE: check if it has any data before adding it
-            if fs.find(dir_path):
-                incomplete_dir_paths.append(dir_path)
-            continue
-        return read_pq_table(fs, dir_path), False
-    return [read_pq_table(fs, dir_path) for dir_path in incomplete_dir_paths], True
 
 
 def try_read_pq_dataset_timestamp_sorted(
@@ -146,7 +106,6 @@ def try_read_pq_dataset_from_parts(
 
 
 _HDFS_ROOT = PurePosixPath("/")
-_HDFS_BASE_PREFIXES = PurePosixPath("nirscloud/dedup"), PurePosixPath("kafka/topics")
 
 
 def _get_fs_hdfs_root(fs: Path | AbstractFileSystem) -> tuple[AbstractFileSystem, Path | PurePosixPath]:
@@ -156,26 +115,6 @@ def _get_fs_hdfs_root(fs: Path | AbstractFileSystem) -> tuple[AbstractFileSystem
         if not isinstance(fs, Path):
             raise NotImplementedError
         return LocalFileSystem(), fs
-
-
-def try_read_pq_dataset_from_meta(
-    hdfs: Path | AbstractFileSystem,
-    meta: Meta,
-    kafka_topic: str,
-    hdfs_prefix_options: tuple[PurePosixPath, ...] = _HDFS_BASE_PREFIXES,
-):
-    fs, hdfs_root = _get_fs_hdfs_root(hdfs)
-    return try_read_pq_dataset(fs, *(hdfs_root / prefix / kafka_topic / meta.hdfs for prefix in hdfs_prefix_options))
-
-
-def try_read_pq_table_from_meta(
-    hdfs: Path | AbstractFileSystem,
-    meta: Meta,
-    kafka_topic: str,
-    hdfs_prefix_options: tuple[PurePosixPath, ...] = _HDFS_BASE_PREFIXES,
-):
-    fs, hdfs_root = _get_fs_hdfs_root(hdfs)
-    return try_read_pq_table(fs, *(hdfs_root / prefix / kafka_topic / meta.hdfs for prefix in hdfs_prefix_options))
 
 
 def try_read_pq_dataset_from_meta_parts(

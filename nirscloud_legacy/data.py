@@ -211,40 +211,6 @@ def convert_raw_fastrak_ds(
     return xr.Dataset({"position": position, "orientation": orientation}, attrs=raw_ds.attrs)
 
 
-def fastrak_stacked_ds_from_table(
-    table: pa.RecordBatch | pa.Table,
-    *,
-    prefer_timedelta: bool = False,
-    scalar_first: bool = False,
-):
-    # idx=0 is always the pen, idx=1 is always the nirs sensor, and if idx=2 exists then it's the head sensor (refrence point for dual-quat transformation)
-    cartesian_axes = "x", "y", "z"
-    euler_axes = "a", "e", "r"
-    quaternion_axes = ("w", "x", "y", "z") if scalar_first else ("x", "y", "z", "w")
-
-    # Fasktrak may be at 60HZ, but our data has large gaps, so a modifed timedelta RangeIndex isn't applicable
-    time, start = _offset_time_from_table(table, prefer_rela=prefer_timedelta)
-    position = np.stack([_from_chunked_array(table[c]) for c in cartesian_axes], axis=0)
-    angles = np.stack([_from_chunked_array(table[c]) for c in euler_axes], axis=1)
-    orientation = _euler_to_quat("ZYX", angles, degrees=True, scalar_first=scalar_first).T
-    ds = xr.Dataset(
-        data_vars={
-            "position": (("cartesian_axes", "stacked"), position),
-            "orientation": (("quaternion_axes", "stacked"), orientation),
-        },
-        coords={
-            "idx": ("stacked", _from_chunked_array(table["idx"])),
-            "list_id": ("stacked", _from_chunked_array(table["list_id"])),
-            "time": ("stacked", time),
-            "cartesian_axes": ("cartesian_axes", list(cartesian_axes)),
-            "quaternion_axes": ("quaternion_axes", list(quaternion_axes)),
-        },
-    )
-    if start is not None:
-        ds.attrs["start"] = start
-    return ds
-
-
 def unstack_fastrak_stacked_ds(
     stacked_ds: xr.Dataset,
     *,
@@ -271,17 +237,6 @@ def unstack_fastrak_stacked_ds(
         warnings.warn(f"{n0 - n2} duplicate time points were dropped", stacklevel=2)
     # TODO: is a seconding sorting required?
     return ds.sortby("time")
-
-
-def fastrak_ds_from_table(
-    table: pa.RecordBatch | pa.Table,
-    *,
-    scalar_first: bool = True,
-    keep: Literal["first", "last"] = "first",
-    join: Literal["outer", "inner", "exact"] = "outer",
-):
-    stacked_ds = fastrak_stacked_ds_from_table(table, scalar_first=scalar_first)
-    return unstack_fastrak_stacked_ds(stacked_ds, keep=keep, join=join)
 
 
 def finapres_ds_from_table(table: pa.RecordBatch | pa.Table):

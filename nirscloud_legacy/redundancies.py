@@ -3,6 +3,7 @@ import warnings
 from collections.abc import Callable
 from functools import partial
 from pathlib import Path, PurePosixPath
+from typing import Literal
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -14,17 +15,14 @@ from metaox_parser import read_dcsraw, read_nirsraw
 
 from .constants import (
     KAFKA_TOPICS_D,
-    KAFKA_TOPICS_FT,
-    KAFKA_TOPICS_FT_CM,
     KAFKA_TOPICS_N,
 )
 from .data import (
     dcs_ds_from_table,
     fastrak_raw_stacked_ds_from_table,
-    fastrak_stacked_ds_from_table,
     nirs_ds_from_table,
 )
-from .metadata import convert_dcs_meta, convert_nirs_meta, try_pop_extra_attrs, update_metadata
+from .metadata import convert_dcs_meta, convert_fastrak_meta, convert_nirs_meta, try_pop_extra_attrs, update_metadata
 from .mongo import DCSMeta, FastrakMeta, Meta, NIRSMeta
 
 ## After NE136 on 2024-03-27 '/nirscloud/dedup/metaox_nirs_rs/_study_id=CCHU/_group_id=_/_subject_id=NE136/_the_date=2024-03-27/_meta_id=xNR9hfs21EKC2dk782WfTA'
@@ -186,16 +184,20 @@ def try_read_pq_dataset_from_meta_parts(
     min_part: int | None,
     max_part: int | None,
     kafka_topic: str,
-    agg_prefix: str | None = None,
+    agg_prefix: Literal["agg", "agg_by_hr", "agg_by_hr3", "agg_by_day", "ts_by_hr3"] | None = None,
 ):
     fs, hdfs_root = _get_fs_hdfs_root(hdfs)
     if agg_prefix is not None:
-        raise NotImplementedError
+        agg_dir_path = hdfs_root / "nirscloud" / agg_prefix / kafka_topic / meta.hdfs
+        # TODO: Ensure there is only a single parquet file
+        agg_pq_ds = try_read_pq_dataset_timestamp_sorted(fs, agg_dir_path)
+        if agg_pq_ds is not None:
+            return agg_pq_ds, None, False
     dedup_dir_path = hdfs_root / "nirscloud/dedup" / kafka_topic / meta.hdfs
     raw_dir_path = hdfs_root / "kafka/topics" / kafka_topic / meta.hdfs
     if not (fs.exists(str(dedup_dir_path)) or fs.exists(str(raw_dir_path))):
         msg = f"{meta.hdfs} not found in kafka topic {kafka_topic!r}"
-        raise ValueError(msg)
+        raise FileNotFoundError(msg)
     assert (min_part is None) == (max_part is None)
     dedup_pq_ds = None
     filter_expr = None
@@ -225,9 +227,10 @@ def try_read_raw_ds_from_meta_parts(
     expected_n: int,
     min_part: int | None,
     max_part: int | None,
+    *,
     kafka_topic: str,
     agg_prefix: PurePosixPath | None = None,
-    dim: str = "time",
+    dim: str | tuple[str, list[str]],
     cols: list[str] | None = None,
 ):
     dedup_pq_ds, raw_pq_ds, missing = try_read_pq_dataset_from_meta_parts(
@@ -241,12 +244,23 @@ def try_read_raw_ds_from_meta_parts(
         pq_dss.append(raw_pq_ds)
 
     if pq_dss:
+        if not isinstance(dim, str):
+            dim, stacked = dim
+            indexes = {dim: stacked}
+            sort_dim = list(stacked)
+        else:
+            indexes = None
+            sort_dim = dim
         raw_ds = xr.concat(
             [from_table(rb) for pq_ds in pq_dss for rb in pq_ds.to_batches(columns=cols) if rb.num_rows > 0], dim=dim
-        ).sortby(dim)
+        ).sortby(sort_dim)
         if needs_dedup:
             n_dup = raw_ds.sizes[dim]
-            raw_ds = raw_ds.drop_duplicates(dim)
+            if indexes is not None:
+                # TODO: do this without a multi-index
+                raw_ds = raw_ds.set_index(indexes).drop_duplicates(dim).reset_index(dim)
+            else:
+                raw_ds = raw_ds.drop_duplicates(dim)
             n_dedup = raw_ds.sizes[dim]
             if n_dedup == n_dup:
                 warnings.warn("de-dup wasn't needed")
@@ -496,47 +510,48 @@ def try_read_dcs_ds_from_meta(
     return try_pop_extra_attrs(update_metadata(ds, metadata))
 
 
-def try_read_fastrak_stacked_ds_from_meta(
+def try_read_fastrak_raw_stacked_ds_from_meta_inner(
     hdfs: Path | AbstractFileSystem,
     meta: FastrakMeta,
     *,
-    raw: bool = False,
     prefer_timedelta: bool = False,
-    scalar_first: bool = False,
 ):
-    stacked_ds_from_table = (
-        partial(fastrak_raw_stacked_ds_from_table, prefer_timedelta=prefer_timedelta)
-        if raw
-        else partial(fastrak_stacked_ds_from_table, scalar_first=scalar_first, prefer_timedelta=prefer_timedelta)
-    )
-    table, missing = try_read_pq_table_from_meta(
-        hdfs, meta, KAFKA_TOPICS_FT_CM, (PurePosixPath("nirscloud/agg"), *_HDFS_BASE_PREFIXES)
-    )
-    if missing and not table:
-        table, missing = try_read_pq_table_from_meta(
-            hdfs, meta, KAFKA_TOPICS_FT, (PurePosixPath("nirscloud/agg"), *_HDFS_BASE_PREFIXES)
-        )
-    if missing and not table:
+    return try_read_raw_ds_from_meta_parts(
+        partial(fastrak_raw_stacked_ds_from_table, prefer_timedelta=prefer_timedelta),
+        hdfs,
+        meta,
+        meta.n_fastrak,
+        meta.n_fastrak_min_part,
+        meta.n_fastrak_max_part,
+        # FIXME: there's nothing in the metadata to determine if the data is in "fastrak2_s" or "fastrak_s", but most of the data in "fastrak_s" is also in "fastrak2_s"
+        kafka_topic="fastrak_cm_s" if meta.is_cm else "fastrak2_s",
+        agg_prefix="agg",
+        dim=("stacked", ["idx", "time", "list_id"]),
         # FIXME: data in the "fastrak_s" topic doesn't have the "list_id" variable
-        table, missing = try_read_pq_table_from_meta(hdfs, meta, "fastrak_s")
-    if missing and not table:
-        raise FileNotFoundError(meta.hdfs)
-    elif not missing:
-        return stacked_ds_from_table(table)
-    else:
-        raw_ds = (
-            xr.concat([stacked_ds_from_table(t) for t in table], "stacked", join="outer")
-            .sortby(["idx", "time", "list_id"])
-            # TODO: do this without a multi-index
-            .set_index(stacked=["idx", "time", "list_id"])
-            .drop_duplicates("stacked")
-            .reset_index("stacked")
-        )
-        raw_n_fastrak = raw_ds.sizes["stacked"]
-        if raw_n_fastrak >= meta.n_fastrak:
-            if raw_n_fastrak > meta.n_fastrak:
-                warnings.warn(f"{meta.meta!r}: Expected {meta.n_fastrak} points, but found {raw_n_fastrak}")
-            return raw_ds
-        else:
-            warnings.warn(f"{meta.meta!r}: Missing data, expected {meta.n_fastrak} points, but found {raw_n_fastrak}")
-            return raw_ds
+        cols=["_nano_ts", "_offset_nano_ts", "idx", "list_id", "x", "y", "z", "a", "e", "r"],
+    )
+
+
+def try_read_fastrak_raw_stacked_ds_from_meta(
+    hdfs: Path | AbstractFileSystem,
+    meta: FastrakMeta,
+    *,
+    prefer_timedelta: bool = False,
+):
+    """Read Fastrak data from the cluster using the redudant non-deduplicated data to account for partial data
+    after the cluster data loss incident on March 27th 2024
+
+    Parameters
+    ----------
+    hdfs
+        The mounted location or `fsspec` file-system interface to access the hdfs data
+    meta
+        A mongo document describing the metadata of a measurement
+    prefer_timedelta
+        prefer the `time` coordinate as a timedelta64 instead of datetime64
+    """
+    ds, missing = try_read_fastrak_raw_stacked_ds_from_meta_inner(hdfs, meta, prefer_timedelta=prefer_timedelta)
+    if missing:
+        warnings.warn(f"{meta.meta!r}: missing data")
+    metadata = convert_fastrak_meta(meta)
+    return try_pop_extra_attrs(update_metadata(ds, metadata))

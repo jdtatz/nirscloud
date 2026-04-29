@@ -179,7 +179,10 @@ def _stack_dataset_vars(ds: xr.Dataset, *dvars: str, dim: str, axis: Literal[0, 
         stacked = ds.to_stacked_array("variable", ds.dims, dim)
         # FIXME: `xr.DataArray.unstack` modifies the array's data even if the multi-index has only a single level
         # stacked = stacked.unstack("variable")
-        stacked = stacked.reset_index("variable").set_xindex(dim).swap_dims({"variable": dim})
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message=".*Try using swap_dims instead.*")
+            # FIXME: this will warn and suggest swap_dims, but that's broken for this use-case https://github.com/pydata/xarray/issues/8646
+            stacked = stacked.reset_index("variable").set_xindex(dim).rename({"variable": dim})
     assert tuple(stacked.coords[dim].values) == dvars
     return stacked
 
@@ -205,7 +208,7 @@ def convert_raw_fastrak_ds(
     )
     if transpose:
         orientation = orientation.transpose("quaternion_axes", ...)
-    return xr.Dataset({"position": position, "orientation": orientation})
+    return xr.Dataset({"position": position, "orientation": orientation}, attrs=raw_ds.attrs)
 
 
 def fastrak_stacked_ds_from_table(

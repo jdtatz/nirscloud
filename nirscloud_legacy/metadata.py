@@ -36,18 +36,19 @@ def try_pop_extra_attrs(ds: xr.DataArray | xr.Dataset, time_coord: str = "time")
     if time_coord not in ds.coords:
         return ds
     time = ds.coords[time_coord]
+    is_sorted = time_coord in ds.sizes
     if not np.isdtype(time.dtype, np.datetime64):
         return ds
     if "start" in ds.attrs:
         start = ds.attrs.pop("start")
-        startv = time[0].values
+        startv = (time[0] if is_sorted else time.min()).values
         if start != startv:
             msg = f"start times differ between the metadata {start!r} and the data {startv}"
             warnings.warn(msg, stacklevel=2)
             ds.attrs["start"] = str(start)
     if "end" in ds.attrs:
         end = ds.attrs.pop("end")
-        endv = time[-1].values
+        endv = (time[-1] if is_sorted else time.max()).values
         if end != endv:
             msg = f"end times differ between the metadata {end!r} and the data {endv}"
             warnings.warn(msg, stacklevel=2)

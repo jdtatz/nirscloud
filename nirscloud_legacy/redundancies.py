@@ -455,6 +455,8 @@ def try_read_fastrak_raw_stacked_ds_from_meta_inner(
     *,
     prefer_timedelta: bool = False,
 ):
+    # Any measurement before/on 2021-04-13 is only in "fastrak_s"
+    assert meta.date > datetime.date(2021, 4, 13)
     return try_read_raw_ds_from_meta_parts(
         partial(fastrak_raw_stacked_ds_from_table, prefer_timedelta=prefer_timedelta),
         hdfs,

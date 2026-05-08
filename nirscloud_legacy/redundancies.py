@@ -23,7 +23,7 @@ from .data import (
     nirs_ds_from_table,
 )
 from .metadata import convert_dcs_meta, convert_fastrak_meta, convert_nirs_meta, try_pop_extra_attrs, update_metadata
-from .mongo import DCSMeta, FastrakMeta, Meta, NIRSMeta
+from .mongo import DCSMeta, FastrakMeta, Meta, MetaOxMeta, NIRSMeta
 
 __all__ = ["try_read_dcs_ds_from_meta", "try_read_fastrak_raw_stacked_ds_from_meta", "try_read_nirs_ds_from_meta"]
 
@@ -217,17 +217,18 @@ def try_read_raw_ds_from_meta_parts(
 
 
 def read_nirs_ds_from_meta_raw(
-    meta: NIRSMeta,
-    smb_path: Path,
+    raw_data: Path,
+    meta: NIRSMeta | MetaOxMeta,
     *,
     contiguous: bool = True,
     transpose: bool = True,
 ):
     if meta.nirsraw_filepath is None:
         raise ValueError("`meta.nirsraw_filepath` is `None`")
-    elif meta.nirsraw_filepath.parts[:2] != ("/", "smb"):
-        raise ValueError(f'`meta.nirsraw_filepath`({meta.nirsraw_filepath}) doesn\'t start with "/smb/"')
-    nirsraw_filepath = smb_path.joinpath(*meta.nirsraw_filepath.parts[2:])
+    elif meta.nirsraw_filepath.parts[:4] != ("/", "smb", "NIRS-Public", "NIRS_data"):
+        msg = f'`meta.nirsraw_filepath`({meta.nirsraw_filepath}) doesn\'t start with "/smb/NIRS-Public/NIRS_data"'
+        raise ValueError(msg)
+    nirsraw_filepath = raw_data.joinpath(*meta.nirsraw_filepath.parts[4:])
     if meta.nirs_distances is None:
         warnings.warn(f"{meta.meta!r}: Missing `nirs_distances`, assuming 4 detectors")
         ndet = 4
@@ -254,17 +255,18 @@ def read_nirs_ds_from_meta_raw(
 
 
 def read_dcs_ds_from_meta_raw(
-    meta: DCSMeta,
-    smb_path: Path,
+    raw_data: Path,
+    meta: DCSMeta | MetaOxMeta,
     *,
     contiguous: bool = True,
     transpose: bool = True,
 ):
     if meta.dcsraw_filepath is None:
         raise ValueError("`meta.dcsraw_filepath` is `None`")
-    elif meta.dcsraw_filepath.parts[:2] != ("/", "smb"):
-        raise ValueError(f'`meta.dcsraw_filepath`({meta.dcsraw_filepath}) doesn\'t start with "/smb/"')
-    dcsraw_filepath = smb_path.joinpath(*meta.dcsraw_filepath.parts[2:])
+    elif meta.dcsraw_filepath.parts[:4] != ("/", "smb", "NIRS-Public", "NIRS_data"):
+        msg = f'`meta.dcsraw_filepath`({meta.dcsraw_filepath}) doesn\'t start with "/smb/NIRS-Public/NIRS_data"'
+        raise ValueError(msg)
+    dcsraw_filepath = raw_data.joinpath(*meta.dcsraw_filepath.parts[4:])
 
     if meta.dcs_hz is None:
         warnings.warn(f"{meta.meta!r}: Missing `meta.dcs_hz`, assuming 50 Hz")
@@ -285,8 +287,8 @@ def read_dcs_ds_from_meta_raw(
 
 def try_read_nirs_ds_from_meta_inner(
     hdfs: Path | AbstractFileSystem,
-    meta: NIRSMeta,
-    smb_path: Path,
+    raw_data: Path,
+    meta: NIRSMeta | MetaOxMeta,
     *,
     prefer_timedelta: bool = False,
     transpose: bool = True,
@@ -313,7 +315,7 @@ def try_read_nirs_ds_from_meta_inner(
     elif meta.nirsraw_filepath.parts[:2] != ("/", "smb"):
         warnings.warn(f'{meta.meta!r}: nirsraw_filepath {meta.nirsraw_filepath} doesn\'t start with "/smb"')
         return raw_ds, True, False
-    nirsraw_ds = read_nirs_ds_from_meta_raw(meta, smb_path, transpose=transpose, contiguous=raw_ds is None)
+    nirsraw_ds = read_nirs_ds_from_meta_raw(raw_data, meta, transpose=transpose, contiguous=raw_ds is None)
     if not prefer_timedelta:
         if raw_ds and "start" in raw_ds.attrs:
             nirsraw_ds["time"] = raw_ds.attrs["start"] + nirsraw_ds["time"]
@@ -328,8 +330,8 @@ def try_read_nirs_ds_from_meta_inner(
 
 def try_read_nirs_ds_from_meta(
     hdfs: Path | AbstractFileSystem,
-    meta: NIRSMeta,
-    smb_path: Path,
+    raw_data: Path,
+    meta: NIRSMeta | MetaOxMeta,
     *,
     prefer_timedelta: bool = False,
     transpose: bool = True,
@@ -342,18 +344,18 @@ def try_read_nirs_ds_from_meta(
     ----------
     hdfs
         The mounted location or `fsspec` file-system interface to access the hdfs data
+    raw_data
+        The nirsraw filepath in meta always starts with '/smb/NIRS-Public/NIRS_data', replace it with `raw_data` pointing towards
+        the mounted location of the raw data fileshare
     meta
         A mongo document describing the metadata of a measurement
-    smb_path
-        The nirsraw filepath in meta always starts with '/smb/', replace it with `smb_path` pointing towards
-        the mounted location of the fileshare. On our jupyterhub that is '/home'
     prefer_timedelta
         prefer the `time` coordinate as a timedelta64 instead of datetime64
     transpose
         transpose the `time` coordinate to be the last coordinate instead of the first
     """
     ds, missing, from_nirsraw = try_read_nirs_ds_from_meta_inner(
-        hdfs, meta, smb_path, prefer_timedelta=prefer_timedelta, transpose=transpose
+        hdfs, raw_data, meta, prefer_timedelta=prefer_timedelta, transpose=transpose
     )
     if missing:
         warnings.warn(f"{meta.meta!r}: missing data")
@@ -365,8 +367,8 @@ def try_read_nirs_ds_from_meta(
 
 def try_read_dcs_ds_from_meta_inner(
     hdfs: Path | AbstractFileSystem,
-    meta: DCSMeta,
-    smb_path: Path,
+    raw_data: Path,
+    meta: DCSMeta | MetaOxMeta,
     *,
     prefer_timedelta: bool = False,
     transpose: bool = True,
@@ -399,7 +401,7 @@ def try_read_dcs_ds_from_meta_inner(
     elif meta.dcsraw_filepath.parts[:2] != ("/", "smb"):
         warnings.warn(f'{meta.meta!r}: dcsraw_filepath {meta.dcsraw_filepath} doesn\'t start with "/smb"')
         return raw_ds, True, False
-    dcsraw_ds = read_dcs_ds_from_meta_raw(meta, smb_path, transpose=transpose, contiguous=raw_ds is None)
+    dcsraw_ds = read_dcs_ds_from_meta_raw(raw_data, meta, transpose=transpose, contiguous=raw_ds is None)
     if not prefer_timedelta:
         if raw_ds and "start" in raw_ds.attrs:
             dcsraw_ds["time"] = raw_ds.attrs["start"] + dcsraw_ds["time"]
@@ -414,8 +416,8 @@ def try_read_dcs_ds_from_meta_inner(
 
 def try_read_dcs_ds_from_meta(
     hdfs: Path | AbstractFileSystem,
-    meta: DCSMeta,
-    smb_path: Path,
+    raw_data: Path,
+    meta: DCSMeta | MetaOxMeta,
     *,
     prefer_timedelta: bool = False,
     transpose: bool = True,
@@ -428,18 +430,18 @@ def try_read_dcs_ds_from_meta(
     ----------
     hdfs
         The mounted location or `fsspec` file-system interface to access the hdfs data
+    raw_data
+        The dcsraw filepath in meta always starts with '/smb/NIRS-Public/NIRS_data', replace it with `raw_data` pointing towards
+        the mounted location of the raw data fileshare
     meta
         A mongo document describing the metadata of a measurement
-    smb_path
-        The dcsraw filepath in meta always starts with '/smb/', replace it with `smb_path` pointing towards
-        the mounted location of the fileshare. On our jupyterhub that is '/home'
     prefer_timedelta
         prefer the `time` coordinate as a timedelta64 instead of datetime64
     transpose
         transpose the `time` coordinate to be the last coordinate instead of the first
     """
     ds, missing, from_dcsraw = try_read_dcs_ds_from_meta_inner(
-        hdfs, meta, smb_path, prefer_timedelta=prefer_timedelta, transpose=transpose
+        hdfs, raw_data, meta, prefer_timedelta=prefer_timedelta, transpose=transpose
     )
     if missing:
         warnings.warn(f"{meta.meta!r}: missing data")
